@@ -1,10 +1,10 @@
 import os
 
 # Токен бота від @BotFather
-BOT_TOKEN = os.getenv("BOT_TOKEN", "ВСТАВ_СВІЙ_ТОКЕН_ТУТ")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8868564617:AAFC_JntIUuwP9T6YSCLYIyURKBpiEadoxc")
 
 # API ключ від openweathermap.org (безкоштовна реєстрація)
-WEATHER_API_KEY = os.getenv("WEATHER_API_KEY", "ВСТАВ_СВІЙ_КЛЮЧ_ТУТ")
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY", "2d8f7e902b2da4fdc9dd8355dcbd2fd8")
 
 # Місто для погоди
 WEATHER_CITY = "Ternopil,UA"
