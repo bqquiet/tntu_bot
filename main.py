@@ -4,7 +4,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 
 from config import BOT_TOKEN
-from handlers import start
+from handlers import start, schedule
 
 logging.basicConfig(level=logging.INFO)
 
@@ -14,6 +14,7 @@ async def main():
 
     # Підключаємо роутери
     dp.include_router(start.router)
+    dp.include_router(schedule.router)
 
     # Запускаємо бота
     await dp.start_polling(bot)
