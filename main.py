@@ -5,7 +5,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import BOT_TOKEN
-from handlers import start, schedule, services, grades, teachers, notes, deadlines, reminders
+from handlers import start, schedule, services, grades, teachers, notes, deadlines, reminders, qa, quiz
 from handlers.deadlines import send_morning_deadlines
 from handlers.reminders import check_and_send_reminders
 
@@ -25,8 +25,10 @@ async def main():
     dp.include_router(notes.router)
     dp.include_router(deadlines.router)
     dp.include_router(reminders.router)
+    dp.include_router(qa.router)
+    dp.include_router(quiz.router)
 
-    # APScheduler — планувальник фонових задач
+    # APScheduler — фонові задачі
     scheduler = AsyncIOScheduler()
 
     # Щодня о 08:00 — нагадування про дедлайни
@@ -47,7 +49,7 @@ async def main():
     )
 
     scheduler.start()
-    logging.info("✅ Бот запущено. APScheduler активний.")
+    logging.info("✅ Бот запущено. Всі модулі активні.")
 
     await dp.start_polling(bot)
 
