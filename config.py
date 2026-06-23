@@ -1,19 +1,13 @@
+from dotenv import load_dotenv
 import os
 
-# Токен бота від @BotFather
-BOT_TOKEN = os.getenv("BOT_TOKEN", "ВСТАВ_СВІЙ_ТОКЕН_ТУТ")
+load_dotenv()
 
-# API ключ від openweathermap.org (безкоштовна реєстрація)
-WEATHER_API_KEY = os.getenv("WEATHER_API_KEY", "ВСТАВ_СВІЙ_КЛЮЧ_ТУТ")
+BOT_TOKEN        = os.getenv("BOT_TOKEN", "")
+WEATHER_API_KEY  = os.getenv("WEATHER_API_KEY", "")
+WEATHER_CITY     = "Ternopil,UA"
+TNTU_BASE_URL    = "https://tntu.edu.ua"
 
-# Місто для погоди
-WEATHER_CITY = "Ternopil,UA"
-
-# URL сайту ТНТУ
-TNTU_BASE_URL = "https://tntu.edu.ua"
-TNTU_SCHEDULE_URL = f"{TNTU_BASE_URL}/?p=uk/schedule"
-
-# Факультети
 FACULTIES = {
     "ФМТ": "fmt",
     "ФПТ": "fpt",
@@ -21,5 +15,4 @@ FACULTIES = {
     "ФЕМ": "fem",
 }
 
-# Курси
 COURSES = ["1 курс", "2 курс", "3 курс", "4 курс"]

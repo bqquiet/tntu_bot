@@ -5,7 +5,11 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import BOT_TOKEN
-from handlers import start, schedule, services, grades, teachers, notes, deadlines, reminders, qa, quiz
+from handlers import (
+    start, schedule, services, grades,
+    teachers, notes, deadlines, reminders,
+    qa, quiz, buildings, faq
+)
 from handlers.deadlines import send_morning_deadlines
 from handlers.reminders import check_and_send_reminders
 
@@ -16,7 +20,6 @@ async def main():
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
 
-    # Підключаємо всі роутери
     dp.include_router(start.router)
     dp.include_router(schedule.router)
     dp.include_router(services.router)
@@ -27,30 +30,15 @@ async def main():
     dp.include_router(reminders.router)
     dp.include_router(qa.router)
     dp.include_router(quiz.router)
+    dp.include_router(buildings.router)
+    dp.include_router(faq.router)
 
-    # APScheduler — фонові задачі
     scheduler = AsyncIOScheduler()
-
-    # Щодня о 08:00 — нагадування про дедлайни
-    scheduler.add_job(
-        send_morning_deadlines,
-        trigger="cron",
-        hour=8,
-        minute=0,
-        args=[bot],
-    )
-
-    # Щохвилини — перевірка особистих нагадувань
-    scheduler.add_job(
-        check_and_send_reminders,
-        trigger="interval",
-        minutes=1,
-        args=[bot],
-    )
-
+    scheduler.add_job(send_morning_deadlines, "cron", hour=8, minute=0, args=[bot])
+    scheduler.add_job(check_and_send_reminders, "interval", minutes=1, args=[bot])
     scheduler.start()
-    logging.info("✅ Бот запущено. Всі модулі активні.")
 
+    logging.info("✅ Бот запущено. Всі модулі активні.")
     await dp.start_polling(bot)
 
 
