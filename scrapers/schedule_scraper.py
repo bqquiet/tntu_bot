@@ -1,203 +1,183 @@
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 from config import TNTU_BASE_URL
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; TNTU-Bot/1.0)"}
 
-# Правильний формат URL: ?p=uk/schedule&s={faculty}-{group}
-# Наприклад: fis-sp11, fmt-ma11, fem-bi11
 
 def get_faculty_data(faculty_code: str) -> dict:
-    """
-    Повертає дані факультету:
-    - groups_by_course: {курс: [(назва, код), ...]}
-    - pdf_links: [(назва_файлу, url), ...]
-    - exam_groups: [(назва групи, дата початку), ...]
-    """
     url = f"{TNTU_BASE_URL}/?p=uk/schedule&s={faculty_code}"
     try:
-        response = requests.get(url, headers=HEADERS, timeout=10)
-        response.encoding = "utf-8"
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        r.encoding = "utf-8"
     except requests.RequestException:
-        return {"groups_by_course": {}, "pdf_links": [], "exam_groups": []}
+        return {"groups_by_course": {}, "pdf_links": []}
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    soup = BeautifulSoup(r.text, "html.parser")
     groups_by_course = {}
     pdf_links = []
-    exam_groups = []
 
-    # Збираємо PDF посилання для розкладу занять
+    # ── PDF посилання на розклади занять ──────────────────────────────────
     for a in soup.find_all("a", href=True):
         href = a["href"]
-        if ".pdf" in href.lower() or ".PDF" in href:
-            title = a.get_text(strip=True) or a.parent.get_text(strip=True)
-            full_url = href if href.startswith("http") else TNTU_BASE_URL + href
-            pdf_links.append((title[:80], full_url))
+        if ".pdf" in href.lower():
+            title = a.get_text(strip=True) or "Розклад"
+            # Правильне склеювання URL
+            full_url = href if href.startswith("http") else urljoin(TNTU_BASE_URL + "/", href)
+            if title and full_url not in [u for _, u in pdf_links]:
+                pdf_links.append((title[:100], full_url))
 
-    # Збираємо групи з посиланнями на екзаменаційний розклад
+    # ── Групи з посиланнями на екзаменаційний розклад ────────────────────
     for a in soup.find_all("a", href=True):
         href = a["href"]
-        # Формат посилань на групи: ?p=uk/schedule&s=fis-sp11
-        if "?p=uk/schedule&s=" in href and "-" in href.split("&s=")[-1]:
-            group_code = href.split("&s=")[-1]  # наприклад: fis-sp11
-            group_name = a.get_text(strip=True)  # наприклад: СП-11
+        if "?p=uk/schedule&s=" not in href:
+            continue
+        code_part = href.split("&s=")[-1]
+        # Пропускаємо факультетні посилання (fmt, fpt, fis, fem)
+        if code_part in ("fmt", "fpt", "fis", "fem", faculty_code):
+            continue
+        # Групові посилання містять цифри
+        if not any(c.isdigit() for c in code_part):
+            continue
 
-            if not group_name or len(group_name) > 15:
-                continue
+        group_name = a.get_text(strip=True).split("(")[0].strip()
+        if not group_name or len(group_name) > 15:
+            continue
 
-            # Витягуємо дату якщо є "(з ДД.ММ.РРРР)"
-            parent_text = a.parent.get_text(strip=True) if a.parent else ""
-            date_start = ""
-            if "з " in parent_text:
-                import re
-                m = re.search(r"з (\d{2}\.\d{2}\.\d{4})", parent_text)
-                if m:
-                    date_start = m.group(1)
+        # Нормалізуємо код групи
+        group_code = code_part  # напр. fis-sp11 або sp11
 
-            exam_groups.append((group_name, group_code, date_start))
-
-            # Групуємо по курсах
-            digits = "".join(filter(str.isdigit, group_name))
-            if len(digits) >= 2:
-                course_num = digits[0]
-                course_key = f"{course_num} курс"
-                if course_key not in groups_by_course:
-                    groups_by_course[course_key] = []
-                entry = (group_name, group_code)
-                if entry not in groups_by_course[course_key]:
-                    groups_by_course[course_key].append(entry)
+        digits = "".join(filter(str.isdigit, group_name))
+        if len(digits) >= 2:
+            course_num = digits[0]
+            course_key = f"{course_num} курс"
+            if course_key not in groups_by_course:
+                groups_by_course[course_key] = []
+            entry = (group_name, group_code)
+            if entry not in groups_by_course[course_key]:
+                groups_by_course[course_key].append(entry)
 
     return {
         "groups_by_course": dict(sorted(groups_by_course.items())),
-        "pdf_links": pdf_links[:10],
-        "exam_groups": exam_groups,
+        "pdf_links": pdf_links[:15],
     }
 
 
-def get_exam_schedule(group_code: str) -> str:
-    """
-    Парсить і повертає розклад екзаменів для конкретної групи.
-    group_code — повний код, наприклад: fis-sp11
-    """
+def get_exam_schedule(group_code: str, group_name: str = "") -> str:
+    """Парсить розклад екзаменів групи."""
     url = f"{TNTU_BASE_URL}/?p=uk/schedule&s={group_code}"
+    display_name = group_name or group_code.split("-")[-1].upper()
+
     try:
-        response = requests.get(url, headers=HEADERS, timeout=10)
-        response.encoding = "utf-8"
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        r.encoding = "utf-8"
     except requests.RequestException:
-        return f"❌ Не вдалося завантажити розклад. Спробуй пізніше.\n\n🔗 {url}"
+        return f"❌ Не вдалося завантажити розклад.\n\n🔗 {url}"
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    soup = BeautifulSoup(r.text, "html.parser")
 
-    # Витягуємо основний контент — шукаємо таблиці і списки з іспитами
-    lines = []
-    group_name = group_code.split("-")[-1].upper()
+    # Знаходимо основний контент — шукаємо блок після навігації
+    # Пропускаємо nav, header, sidebar
+    for tag in soup.find_all(["nav", "header", "aside"]):
+        tag.decompose()
 
-    # Шукаємо заголовок групи
-    for tag in soup.find_all(["h1", "h2", "h3"]):
-        text = tag.get_text(strip=True)
-        if any(c.isupper() for c in text) and len(text) < 30 and ("група" in text.lower() or any(d.isdigit() for d in text)):
-            group_name = text
-            break
+    months = ["січня","лютого","березня","квітня","травня","червня",
+              "липня","серпня","вересня","жовтня","листопада","грудня"]
 
-    # Шукаємо всі текстові блоки з датами та предметами
-    content_blocks = []
-    in_schedule = False
+    # Шукаємо блоки з датами іспитів
+    exam_entries = []
+    current_date = ""
 
-    for tag in soup.find_all(["h2", "h3", "h4", "p", "li", "div"]):
-        text = tag.get_text(separator=" ", strip=True)
+    content = soup.find("main") or soup.find("div", {"id": "content"}) or \
+              soup.find("div", {"class": ["content","main-content","entry-content"]}) or soup
 
-        if not text or len(text) < 3:
+    for tag in content.find_all(["h2","h3","h4","p","li","div","td"]):
+        text = " ".join(tag.get_text().split()).strip()
+
+        if not text or len(text) > 400 or len(text) < 3:
             continue
 
-        # Починаємо збирати після заголовка з назвою групи або "розклад"
-        if tag.name in ("h2", "h3") and (
-            "розклад" in text.lower() or
-            "екзамен" in text.lower() or
-            any(c.isupper() for c in text[:5])
-        ):
-            in_schedule = True
-
-        if not in_schedule:
+        # Пропускаємо якщо схоже на навігацію
+        nav_words = ["факультет","студенту","головна","меню","copyright","пошук","новини"]
+        if any(w in text.lower() for w in nav_words):
             continue
 
-        # Зупиняємось на футері
-        if "права" in text.lower() or "©" in text or len(text) > 500:
+        # Знаходимо дату
+        words = text.split()
+        if len(words) == 2 and words[0].isdigit() and any(m in words[1].lower() for m in months):
+            current_date = text
             continue
 
-        # Дати — містять місяць
-        months = ["січня", "лютого", "березня", "квітня", "травня", "червня",
-                  "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"]
-        has_date = any(m in text.lower() for m in months)
+        # Довша дата типу "19 червня 2026"
+        if len(words) == 3 and words[0].isdigit() and any(m in words[1].lower() for m in months) and words[2].isdigit():
+            current_date = text
+            continue
 
-        # Час — містить двокрапку між цифрами
-        has_time = any(f":{d}" in text for d in "0123456789")
-
-        # Предмет — є посилання або довгий текст
+        # Знаходимо предмет (є посилання або достатньо довгий)
         has_link = bool(tag.find("a"))
+        has_time = bool(next((w for w in words if ":" in w and w.replace(":","").isdigit()), None))
+        is_room  = bool(next((w for w in words if w.upper().startswith(("К","ЛАБ","АУД"))), None))
 
-        if has_date or has_time or (has_link and len(text) > 10):
-            content_blocks.append(text)
+        if current_date and (has_link or has_time or is_room or len(text) > 20):
+            # Час
+            time_str = next((w for w in words if ":" in w and len(w) == 5), "")
+            # Аудиторія
+            room_str = next((w for w in words if w.upper().startswith(("К1","К2","К3","К4","ЛАБ","АУД"))), "")
+            # Предмет
+            link = tag.find("a")
+            subject = link.get_text(strip=True) if link else (text[:60] if len(text) > 5 else "")
 
-    # Якщо нічого не знайшли — витягуємо весь текст контентної зони
-    if not content_blocks:
-        main_div = soup.find("div", {"id": "content"}) or soup.find("main") or soup.find("article")
-        if main_div:
-            raw = main_div.get_text(separator="\n", strip=True)
-            # Беремо лише рядки з датами/часом
-            for line in raw.split("\n"):
-                line = line.strip()
-                if len(line) > 5 and (
-                    any(m in line.lower() for m in months) or
-                    ":" in line or
-                    "ауд" in line.lower()
-                ):
-                    content_blocks.append(line)
+            if subject and len(subject) > 3:
+                entry = f"\n📌 {current_date}"
+                entry += f"\n   📚 {subject}"
+                if time_str:
+                    entry += f"\n   🕐 {time_str}"
+                if room_str:
+                    entry += f"  |  🏛 {room_str}"
+                exam_entries.append(entry)
+                current_date = ""
 
-    if not content_blocks:
+        # Консультація
+        if "консультація" in text.lower() and exam_entries:
+            exam_entries[-1] += f"\n   💬 {text}"
+
+    if not exam_entries:
+        # Якщо не вдалось розпарсити — показуємо PDF і посилання
         return (
-            f"📋 Розклад екзаменів — група {group_name.upper()}\n\n"
-            "Детальний розклад ще не опубліковано або відображається у спеціальному форматі.\n\n"
-            f"🔗 Переглянь на сайті ТНТУ:\n{url}"
+            f"📝 Розклад екзаменів — {display_name}\n\n"
+            f"Розклад доступний на офіційному сайті ТНТУ.\n"
+            f"Натисни щоб відкрити:\n\n"
+            f"🔗 {url}"
         )
 
-    # Форматуємо результат
-    result = [f"📝 Розклад екзаменів — {group_name.upper()}\n"]
-    seen = set()
-    for block in content_blocks[:20]:
-        if block not in seen and len(block) > 3:
-            seen.add(block)
-            result.append(block)
-
-    result.append(f"\n🔗 Повний розклад на сайті ТНТУ:\n{url}")
+    result = [f"📝 Розклад екзаменів — {display_name}\n"]
+    result.extend(exam_entries[:15])
+    result.append(f"\n\n🔗 Повний розклад: {url}")
     return "\n".join(result)
 
 
 def get_schedule_pdfs(faculty_code: str, group_name: str) -> str:
-    """
-    Повертає PDF посилання на розклад занять для групи.
-    """
+    """Повертає PDF посилання на розклад занять."""
     data = get_faculty_data(faculty_code)
     pdfs = data.get("pdf_links", [])
-
-    group_upper = group_name.upper()
-    # Шукаємо PDF де згадується група
-    relevant = [(t, u) for t, u in pdfs if group_upper.split("-")[0] in t.upper()]
-
-    url = f"{TNTU_BASE_URL}/?p=uk/schedule&s={faculty_code}"
+    url  = f"{TNTU_BASE_URL}/?p=uk/schedule&s={faculty_code}"
 
     if not pdfs:
         return (
-            f"📅 Розклад занять — група {group_upper}\n\n"
-            "PDF з розкладом ще не завантажено або розклад доступний лише на сайті.\n\n"
-            f"🔗 Перейди на сторінку факультету:\n{url}"
+            f"📅 Розклад занять — {group_name}\n\n"
+            f"PDF-файли ще не завантажено або розклад на сайті.\n\n"
+            f"🔗 {url}"
         )
 
-    lines = [f"📅 Розклад занять — група {group_upper}\n"]
-    lines.append("Оберіть потрібний PDF файл:\n")
+    # Фільтруємо за групою якщо можливо
+    group_prefix = "".join(c for c in group_name if c.isalpha())[:2].upper()
+    relevant = [(t, u) for t, u in pdfs if group_prefix in t.upper() or "PDF" in t.upper()]
+    show_pdfs = relevant if relevant else pdfs
 
-    target_pdfs = relevant if relevant else pdfs[:5]
-    for title, pdf_url in target_pdfs:
-        lines.append(f"📄 {title}\n{pdf_url}\n")
+    lines = [f"📅 Розклад занять — {group_name}\n"]
+    for title, pdf_url in show_pdfs[:6]:
+        lines.append(f"📄 {title}\n🔗 {pdf_url}\n")
 
-    lines.append(f"🔗 Всі розклади:\n{url}")
+    lines.append(f"📋 Всі розклади факультету:\n{url}")
     return "\n".join(lines)
