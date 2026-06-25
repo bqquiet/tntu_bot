@@ -128,4 +128,14 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 
 ---
 
-*Created by [YOUR_NAME](https://github.com/YOUR_USERNAME) — 1st year Software Engineering student at TNTU named after Ivan Puluj, Ternopil, Ukraine*
+## 📫 Contact
+
+* **Email:** [bakalejkoandrij@gmail.com](mailto:bakalejkoandrij@gmail.com)
+* **LinkedIn:** [linkedin.com/in/andrii-bakaleiko](https://linkedin.com/in/andrii-bakaleiko)
+* **GitHub:** [github.com/bqquiet](https://github.com/bqquiet)
+
+---
+
+<div align="center">
+  <b>made by <a href="https://github.com/bqquiet">bqquiet</a></b>
+</div>

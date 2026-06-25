@@ -10,24 +10,22 @@ router = Router()
 
 @router.message(F.text == "📰 Новини ТНТУ")
 async def news_handler(message: Message):
-    # Повідомляємо що завантажуємо
     msg = await message.answer("⏳ Завантажую новини...")
-
     news = get_news(limit=7)
     text = format_news(news)
-
-    await msg.edit_text(text, parse_mode="MarkdownV2", disable_web_page_preview=True)
+    # Без parse_mode — новини містять крапки, дефіси та інші спецсимволи
+    await msg.edit_text(text, disable_web_page_preview=True)
 
 
 @router.message(F.text == "💵 Курс валют")
 async def currency_handler(message: Message):
     msg = await message.answer("⏳ Отримую курс НБУ...")
     text = get_currency()
-    await msg.edit_text(text, parse_mode="Markdown")
+    await msg.edit_text(text)
 
 
 @router.message(F.text == "🌤 Погода")
 async def weather_handler(message: Message):
     msg = await message.answer("⏳ Перевіряю погоду в Тернополі...")
     text = get_weather()
-    await msg.edit_text(text, parse_mode="Markdown")
+    await msg.edit_text(text)

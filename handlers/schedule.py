@@ -10,8 +10,6 @@ router = Router()
 USERS_FILE = "data/users.json"
 
 
-# ─── Збереження групи користувача ────────────────────────────────────────────
-
 def load_users() -> dict:
     if os.path.exists(USERS_FILE):
         with open(USERS_FILE, "r", encoding="utf-8") as f:
@@ -38,33 +36,28 @@ def get_user_group(user_id: int) -> dict | None:
 # ─── Клавіатури ──────────────────────────────────────────────────────────────
 
 def faculty_keyboard(mode: str) -> InlineKeyboardMarkup:
-    """mode: 'exam' або 'pdf'"""
     buttons = [
-        [InlineKeyboardButton(text=name, callback_data=f"fac:{mode}:{code}")]
+        [InlineKeyboardButton(text=name, callback_data=f"sc_fac:{mode}:{code}")]
         for name, code in FACULTIES.items()
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def course_keyboard(mode: str, faculty_code: str, groups_by_course: dict) -> InlineKeyboardMarkup:
+def course_keyboard(mode: str, faculty_code: str, courses: list[str]) -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(
-            text=course,
-            callback_data=f"course:{mode}:{faculty_code}:{course}"
-        )]
-        for course in groups_by_course
+        [InlineKeyboardButton(text=c, callback_data=f"sc_course:{mode}:{faculty_code}:{c}")]
+        for c in courses
     ]
-    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"back:fac:{mode}")])
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"sc_back:fac:{mode}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def group_keyboard(mode: str, faculty_code: str, course: str, group_list: list) -> InlineKeyboardMarkup:
-    buttons = []
-    row = []
-    for name, code in group_list:
+def group_keyboard(mode: str, faculty_code: str, course: str, groups: list) -> InlineKeyboardMarkup:
+    buttons, row = [], []
+    for name, code in groups:
         row.append(InlineKeyboardButton(
             text=name,
-            callback_data=f"grp:{mode}:{faculty_code}:{code}:{name}"
+            callback_data=f"sc_grp:{mode}:{faculty_code}:{course}:{code}:{name}"
         ))
         if len(row) == 3:
             buttons.append(row)
@@ -73,25 +66,32 @@ def group_keyboard(mode: str, faculty_code: str, course: str, group_list: list) 
         buttons.append(row)
     buttons.append([InlineKeyboardButton(
         text="◀️ Назад",
-        callback_data=f"course:{mode}:{faculty_code}:{course}"
+        callback_data=f"sc_course:{mode}:{faculty_code}:{course}"
     )])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-# ─── Хендлери — Розклад занять ───────────────────────────────────────────────
+def saved_group_keyboard(mode: str, group: dict) -> InlineKeyboardMarkup:
+    label = "📅 Розклад занять" if mode == "pdf" else "📝 Екзамени"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=f"📌 Моя група: {group['group_name']}",
+            callback_data=f"sc_show:{mode}:{group['faculty']}:{group['group_code']}:{group['group_name']}"
+        )],
+        [InlineKeyboardButton(text="🔍 Інша група", callback_data=f"sc_back:fac:{mode}")],
+    ])
+
+
+# ─── Хендлери ────────────────────────────────────────────────────────────────
 
 @router.message(F.text == "📅 Розклад занять")
 async def schedule_menu(message: Message):
-    user_group = get_user_group(message.from_user.id)
-    if user_group:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"📌 Моя група: {user_group['group_name']}",
-                callback_data=f"grp:pdf:{user_group['faculty']}:{user_group['group_code']}:{user_group['group_name']}"
-            )],
-            [InlineKeyboardButton(text="🔍 Інша група", callback_data="back:fac:pdf")],
-        ])
-        await message.answer("📅 Розклад занять\n\nОберіть групу:", reply_markup=kb)
+    saved = get_user_group(message.from_user.id)
+    if saved:
+        await message.answer(
+            "📅 Розклад занять\n\nОберіть групу:",
+            reply_markup=saved_group_keyboard("pdf", saved)
+        )
     else:
         await message.answer(
             "📅 Розклад занять\n\nОберіть факультет:",
@@ -99,20 +99,14 @@ async def schedule_menu(message: Message):
         )
 
 
-# ─── Хендлери — Розклад екзаменів ────────────────────────────────────────────
-
 @router.message(F.text == "📝 Розклад екзаменів")
 async def exams_menu(message: Message):
-    user_group = get_user_group(message.from_user.id)
-    if user_group:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"📌 Моя група: {user_group['group_name']}",
-                callback_data=f"grp:exam:{user_group['faculty']}:{user_group['group_code']}:{user_group['group_name']}"
-            )],
-            [InlineKeyboardButton(text="🔍 Інша група", callback_data="back:fac:exam")],
-        ])
-        await message.answer("📝 Розклад екзаменів\n\nОберіть групу:", reply_markup=kb)
+    saved = get_user_group(message.from_user.id)
+    if saved:
+        await message.answer(
+            "📝 Розклад екзаменів\n\nОберіть групу:",
+            reply_markup=saved_group_keyboard("exam", saved)
+        )
     else:
         await message.answer(
             "📝 Розклад екзаменів\n\nОберіть факультет:",
@@ -120,11 +114,9 @@ async def exams_menu(message: Message):
         )
 
 
-# ─── Спільні callback хендлери ───────────────────────────────────────────────
-
-@router.callback_query(F.data.startswith("back:fac:"))
+@router.callback_query(F.data.startswith("sc_back:fac:"))
 async def back_to_faculty(callback: CallbackQuery):
-    mode = callback.data.split(":")[2]
+    mode = callback.data.split(":")[-1]
     title = "📅 Розклад занять" if mode == "pdf" else "📝 Розклад екзаменів"
     await callback.message.edit_text(
         f"{title}\n\nОберіть факультет:",
@@ -133,69 +125,92 @@ async def back_to_faculty(callback: CallbackQuery):
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("fac:"))
+@router.callback_query(F.data.startswith("sc_fac:"))
 async def faculty_chosen(callback: CallbackQuery):
     _, mode, faculty_code = callback.data.split(":", 2)
     faculty_name = next((k for k, v in FACULTIES.items() if v == faculty_code), faculty_code.upper())
 
-    msg = await callback.message.edit_text(f"⏳ Завантажую список груп {faculty_name}...")
+    await callback.message.edit_text(f"⏳ Завантажую групи {faculty_name}...")
     await callback.answer()
 
     data = get_faculty_data(faculty_code)
-    groups_by_course = data["groups_by_course"]
+    groups_by_course = data.get("groups_by_course", {})
 
     if not groups_by_course:
-        await msg.edit_text(
-            f"❌ Не вдалося завантажити групи {faculty_name}.\n"
+        await callback.message.edit_text(
+            f"❌ Не вдалося завантажити групи {faculty_name}.\n\n"
             f"🔗 {TNTU_BASE_URL}/?p=uk/schedule&s={faculty_code}"
         )
         return
 
-    await msg.edit_text(
+    courses = list(groups_by_course.keys())
+    await callback.message.edit_text(
         f"📚 {faculty_name}\n\nОберіть курс:",
-        reply_markup=course_keyboard(mode, faculty_code, groups_by_course)
+        reply_markup=course_keyboard(mode, faculty_code, courses)
     )
 
 
-@router.callback_query(F.data.startswith("course:"))
+@router.callback_query(F.data.startswith("sc_course:"))
 async def course_chosen(callback: CallbackQuery):
     parts = callback.data.split(":", 3)
-    mode, faculty_code, course = parts[1], parts[2], parts[3]
+    _, mode, faculty_code, course = parts
     faculty_name = next((k for k, v in FACULTIES.items() if v == faculty_code), faculty_code.upper())
 
     data = get_faculty_data(faculty_code)
-    group_list = data["groups_by_course"].get(course, [])
+    groups = data.get("groups_by_course", {}).get(course, [])
+
+    if not groups:
+        await callback.message.edit_text(
+            f"❌ Групи для {course} не знайдено.\n"
+            f"🔗 {TNTU_BASE_URL}/?p=uk/schedule&s={faculty_code}"
+        )
+        await callback.answer()
+        return
 
     await callback.message.edit_text(
         f"📚 {faculty_name} — {course}\n\nОберіть групу:",
-        reply_markup=group_keyboard(mode, faculty_code, course, group_list)
+        reply_markup=group_keyboard(mode, faculty_code, course, groups)
     )
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("grp:"))
+@router.callback_query(F.data.startswith("sc_grp:"))
 async def group_chosen(callback: CallbackQuery):
+    # sc_grp:mode:faculty:course:code:name
     parts = callback.data.split(":")
-    mode        = parts[1]
+    mode         = parts[1]
     faculty_code = parts[2]
-    group_code  = parts[3]
-    group_name  = parts[4]
+    course       = parts[3]
+    group_code   = parts[4]
+    group_name   = parts[5]
 
     save_user_group(callback.from_user.id, faculty_code, group_name, group_code)
+    await callback.message.edit_text(f"⏳ Завантажую для групи {group_name}...")
+    await callback.answer()
+
+    await _show_schedule(callback.message, mode, faculty_code, group_code, group_name)
+
+
+@router.callback_query(F.data.startswith("sc_show:"))
+async def show_saved(callback: CallbackQuery):
+    # sc_show:mode:faculty:code:name
+    parts = callback.data.split(":", 4)
+    mode, faculty_code, group_code, group_name = parts[1], parts[2], parts[3], parts[4]
 
     await callback.message.edit_text(f"⏳ Завантажую для групи {group_name}...")
     await callback.answer()
 
+    await _show_schedule(callback.message, mode, faculty_code, group_code, group_name)
+
+
+async def _show_schedule(message, mode: str, faculty_code: str, group_code: str, group_name: str):
     if mode == "exam":
-        text = get_exam_schedule(group_code)
+        text = get_exam_schedule(group_code, group_name)
     else:
         text = get_schedule_pdfs(faculty_code, group_name)
 
-    # Telegram має ліміт 4096 символів — розбиваємо якщо треба
-    if len(text) > 4000:
-        parts_text = [text[i:i+4000] for i in range(0, len(text), 4000)]
-        await callback.message.edit_text(parts_text[0])
-        for part in parts_text[1:]:
-            await callback.message.answer(part)
-    else:
-        await callback.message.edit_text(text)
+    # Розбиваємо якщо > 4000 символів
+    chunks = [text[i:i+4000] for i in range(0, len(text), 4000)]
+    await message.edit_text(chunks[0], disable_web_page_preview=True)
+    for chunk in chunks[1:]:
+        await message.answer(chunk, disable_web_page_preview=True)
