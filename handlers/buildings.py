@@ -3,195 +3,165 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 
 router = Router()
 
-# Всі 11 об'єктів ТНТУ впорядковані логічно
+# Офіційне джерело адрес: tntu.edu.ua/?p=uk/about/building-locations
 BUILDINGS = [
-    # ─── Навчальні корпуси ────────────────────────────────────────────────────
+    # ─── 11 навчальних корпусів ───────────────────────────────────────────────
     {
-        "key": "corp1", "emoji": "🏛", "cat": "Навчальний корпус",
-        "name": "Головний корпус (№1)",
-        "address": "вул. Руська, 56",
-        "work": "Пн–Пт: 8:00–20:00  |  Сб: 8:00–14:00",
-        "desc": "Центральний корпус університету. Тут знаходяться ректорат, деканати більшості факультетів, основні аудиторії та актова зала.",
-        "rooms": [
-            "Ректорат — 2-й поверх",
-            "Деканат ФІС — каб. 7, 1-й поверх",
-            "Бібліотека — 1-й поверх",
-            "Актова зала — 2-й поверх",
-            "Аудиторії ФІС — 3–5 поверхи",
-        ],
-        "map": "https://maps.app.goo.gl/Yb2q8kFZQxvp3NZMA",
+        "key":"c1","cat":"corp","emoji":"🏛","num":"№1",
+        "name":"Корпус №1 (Головний)",
+        "address":"вул. Руська, 56",
+        "work":"Пн–Пт 8:00–20:00  |  Сб 8:00–14:00",
+        "desc":"Головний корпус університету. Ректорат, деканат ФІС, більшість аудиторій ФІС, актова зала, бібліотека.",
+        "rooms":["Ректорат — к.107, 1-й пов.","Деканат ФІС — к.607, 6-й пов.","Бібліотека — 1-й пов.","Кафедри ФІС — 3–7 поверхи"],
+        "map":"https://maps.app.goo.gl/Yb2q8kFZQxvp3NZMA",
     },
     {
-        "key": "corp2", "emoji": "🖥", "cat": "Навчальний корпус",
-        "name": "Навчально-лабораторний корпус (№2)",
-        "address": "вул. Руська, 56 (за головним корпусом)",
-        "work": "Пн–Пт: 8:00–20:00",
-        "desc": "Тут знаходяться комп'ютерні класи та лабораторії кафедр програмної інженерії, комп'ютерних систем і мереж.",
-        "rooms": [
-            "Комп'ютерні класи — 3–5 поверхи",
-            "Лабораторії ПІ — ауд. 401–407",
-            "Лабораторії КС та КН — ауд. 201–210",
-            "Кафедра КТ",
-        ],
-        "map": "https://maps.app.goo.gl/Yb2q8kFZQxvp3NZMA",
+        "key":"c2","cat":"corp","emoji":"🖥","num":"№2",
+        "name":"Корпус №2 (Навчально-лабораторний)",
+        "address":"вул. Руська, 56",
+        "work":"Пн–Пт 8:00–20:00",
+        "desc":"Комп'ютерні класи та лабораторії ФІС. Тут кафедри фізики, автоматизації та їхні лаборатории.",
+        "rooms":["Кафедра фізики — к.40","Лабораторія автоматизації — ауд. 8, 9, 11","Комп'ютерні класи — 3–5 поверхи"],
+        "map":"https://maps.app.goo.gl/Yb2q8kFZQxvp3NZMA",
     },
     {
-        "key": "corp3", "emoji": "⚡️", "cat": "Навчальний корпус",
-        "name": "Корпус ФПТ (№3)",
-        "address": "вул. Микулинецька, 46",
-        "work": "Пн–Пт: 8:00–19:00",
-        "desc": "Корпус Факультету прикладних інформаційних технологій та електроінженерії. Кафедри електроінженерії, радіотехніки та приладів.",
-        "rooms": [
-            "Деканат ФПТ — 1-й поверх",
-            "Радіотехнічні лабораторії",
-            "Електротехнічні лабораторії",
-            "Кафедра БС та ЕМ",
-        ],
-        "map": "https://maps.app.goo.gl/4nXBqhNJmwvNGsB3A",
+        "key":"c3","cat":"corp","emoji":"🏫","num":"№3",
+        "name":"Корпус №3",
+        "address":"вул. Федьковича, 9",
+        "work":"Пн–Пт 8:00–19:00",
+        "desc":"Навчальний корпус університету.",
+        "rooms":["Аудиторії для лекцій та практик"],
+        "map":"https://maps.app.goo.gl/somelink3",
     },
     {
-        "key": "corp4", "emoji": "⚙️", "cat": "Навчальний корпус",
-        "name": "Корпус ФМТ (№4)",
-        "address": "вул. Танцорова, 2",
-        "work": "Пн–Пт: 8:00–18:00",
-        "desc": "Корпус Факультету інженерії машин, споруд та технологій. Механічні майстерні, лабораторії матеріалознавства та машинобудування.",
-        "rooms": [
-            "Деканат ФМТ — 1-й поверх",
-            "Механічні майстерні",
-            "Лабораторія матеріалознавства",
-            "Кафедри ВІ, АВ, ТМІ",
-        ],
-        "map": "https://maps.app.goo.gl/somelink1",
+        "key":"c4","cat":"corp","emoji":"🏫","num":"№4",
+        "name":"Корпус №4",
+        "address":"вул. Руська, 56А",
+        "work":"Пн–Пт 8:00–19:00",
+        "desc":"Навчальний корпус університету. Розташований поруч з головним корпусом.",
+        "rooms":["Аудиторії та лабораторії"],
+        "map":"https://maps.app.goo.gl/somelink4",
     },
     {
-        "key": "corp5", "emoji": "📊", "cat": "Навчальний корпус",
-        "name": "Корпус ФЕМ (№5)",
-        "address": "вул. Білогірська, 50",
-        "work": "Пн–Пт: 8:00–18:00",
-        "desc": "Корпус Факультету економіки та менеджменту. Лекційні аудиторії та кафедри економічних дисциплін.",
-        "rooms": [
-            "Деканат ФЕМ — 1-й поверх",
-            "Аудиторії кафедр БО, ПМ, МА",
-            "Кафедра ЕФ та МП",
-        ],
-        "map": "https://maps.app.goo.gl/somelink2",
-    },
-    # ─── Об'єкти інфраструктури ───────────────────────────────────────────────
-    {
-        "key": "library", "emoji": "📚", "cat": "Інфраструктура",
-        "name": "Наукова бібліотека",
-        "address": "вул. Руська, 56 (головний корпус, 1-й поверх)",
-        "work": "Пн–Пт: 9:00–18:00  |  Сб: 9:00–14:00",
-        "desc": "Головна бібліотека університету. Понад 500 000 примірників. Електронний каталог доступний онлайн.",
-        "rooms": [
-            "Читальний зал",
-            "Абонемент (книги додому)",
-            "Медіатека",
-            "Електронний каталог: library.tntu.edu.ua",
-        ],
-        "map": "https://maps.app.goo.gl/Yb2q8kFZQxvp3NZMA",
+        "key":"c5","cat":"corp","emoji":"🏫","num":"№5",
+        "name":"Корпус №5",
+        "address":"вул. Старий Поділ, 2",
+        "work":"Пн–Пт 8:00–18:00",
+        "desc":"Навчальний корпус університету.",
+        "rooms":["Аудиторії та лабораторії"],
+        "map":"https://maps.app.goo.gl/somelink5",
     },
     {
-        "key": "sport", "emoji": "🏋️", "cat": "Інфраструктура",
-        "name": "Спортивний корпус",
-        "address": "вул. Руська, 56 (подвір'я університету)",
-        "work": "Пн–Пт: 8:00–21:00  |  Сб: 9:00–16:00",
-        "desc": "Спортивний зал та тренажерний зал для студентів. Секції волейболу, баскетболу та інших видів спорту.",
-        "rooms": [
-            "Великий спортивний зал",
-            "Тренажерний зал",
-            "Зал для боротьби",
-            "Реєстрація: кафедра фізвиховання (гол. корпус)",
-        ],
-        "map": "https://maps.app.goo.gl/Yb2q8kFZQxvp3NZMA",
+        "key":"c6","cat":"corp","emoji":"🏫","num":"№6",
+        "name":"Корпус №6",
+        "address":"вул. Гоголя, 6",
+        "work":"Пн–Пт 8:00–18:00",
+        "desc":"Навчальний корпус університету.",
+        "rooms":["Аудиторії та лабораторії"],
+        "map":"https://maps.app.goo.gl/somelink6",
     },
     {
-        "key": "canteen", "emoji": "🍽", "cat": "Інфраструктура",
-        "name": "Їдальня та буфет",
-        "address": "вул. Руська, 56 (головний корпус, цокольний поверх)",
-        "work": "Пн–Пт: 8:30–15:30",
-        "desc": "Студентська їдальня з комплексними обідами та буфет з виробами власного виробництва. Знижки для студентів.",
-        "rooms": [
-            "Їдальня — цокольний поверх",
-            "Буфет — 1-й поверх (біля входу)",
-        ],
-        "map": "https://maps.app.goo.gl/Yb2q8kFZQxvp3NZMA",
+        "key":"c7","cat":"corp","emoji":"⚙️","num":"№7",
+        "name":"Корпус №7 «Ватра»",
+        "address":"вул. Микулинецька, 46",
+        "work":"Пн–Пт 8:00–19:00",
+        "desc":"Корпус ФПТ та ФМТ. Лабораторії електроінженерії, радіотехніки, механічні майстерні.",
+        "rooms":["Деканат ФПТ","Радіотехнічні лабораторії","Електролабораторії","Механічні майстерні ФМТ"],
+        "map":"https://maps.app.goo.gl/4nXBqhNJmwvNGsB3A",
     },
     {
-        "key": "admin", "emoji": "🏢", "cat": "Інфраструктура",
-        "name": "Адміністративний корпус",
-        "address": "вул. Руська, 56 (правий флігель)",
-        "work": "Пн–Пт: 9:00–17:00  |  Обід: 12:30–13:30",
-        "desc": "Адміністративні служби університету: відділ кадрів, бухгалтерія, навчальний відділ, міжнародний відділ.",
-        "rooms": [
-            "Відділ кадрів — 1-й поверх",
-            "Бухгалтерія — 2-й поверх",
-            "Навчальний відділ — 3-й поверх",
-            "Міжнародний відділ — 3-й поверх",
-        ],
-        "map": "https://maps.app.goo.gl/Yb2q8kFZQxvp3NZMA",
-    },
-    # ─── Гуртожитки ──────────────────────────────────────────────────────────
-    {
-        "key": "dorm1", "emoji": "🏠", "cat": "Гуртожиток",
-        "name": "Гуртожиток №1",
-        "address": "вул. Микулинецька, 46а",
-        "work": "Цілодобово (вхід до 23:00 без перепустки)",
-        "desc": "Студентський гуртожиток. Для заселення — звернись до деканату або студентської профспілки у серпні.",
-        "rooms": [
-            "Комендатура — 1-й поверх",
-            "Кімнати на 2–3 особи",
-            "Кухня на кожному поверсі",
-            "Пральня",
-        ],
-        "map": "https://maps.app.goo.gl/4nXBqhNJmwvNGsB3A",
+        "key":"c8","cat":"corp","emoji":"🏢","num":"№8",
+        "name":"Корпус №8",
+        "address":"вул. Гоголя, 8",
+        "work":"Пн–Пт 8:00–18:00",
+        "desc":"Адміністративний корпус. Тут навчальний відділ, підготовчі курси, студентське містечко.",
+        "rooms":["Навчальний відділ — к.20","Підготовчі курси — к.20","Адміністрація студмістечка — ауд. 21а"],
+        "map":"https://maps.app.goo.gl/somelink8",
     },
     {
-        "key": "dorm2", "emoji": "🏠", "cat": "Гуртожиток",
-        "name": "Гуртожиток №2",
-        "address": "вул. Микулинецька, 46б",
-        "work": "Цілодобово (вхід до 23:00 без перепустки)",
-        "desc": "Другий студентський гуртожиток ТНТУ. Умови та правила аналогічні до гуртожитку №1.",
-        "rooms": [
-            "Комендатура — 1-й поверх",
-            "Кімнати на 2–3 особи",
-            "Кухня на кожному поверсі",
-            "Кімната відпочинку",
-        ],
-        "map": "https://maps.app.goo.gl/4nXBqhNJmwvNGsB3A",
+        "key":"c9","cat":"corp","emoji":"🔬","num":"№9",
+        "name":"Корпус №9 «Сатурн»",
+        "address":"вул. Текстильна, 28",
+        "work":"Пн–Пт 8:00–18:00",
+        "desc":"Навчальний корпус університету. Лабораторії та аудиторії.",
+        "rooms":["Аудиторії та лабораторії"],
+        "map":"https://maps.app.goo.gl/somelink9",
+    },
+    {
+        "key":"c10","cat":"corp","emoji":"🎭","num":"№10",
+        "name":"Корпус №10 «Політехнік»",
+        "address":"вул. Білогірська, 50",
+        "work":"Пн–Пт 8:00–20:00",
+        "desc":"Спортивно-мистецький комплекс та корпус ФЕМ. Тут актова зала, басейн, спортзали, кафедри економічних дисциплін.",
+        "rooms":["Деканат ФЕМ","Кафедра маркетингу (МК) — к.209","Актова зала","Плавальний басейн","Спортивні зали"],
+        "map":"https://maps.app.goo.gl/somelink10",
+    },
+    {
+        "key":"c11","cat":"corp","emoji":"🏭","num":"№11",
+        "name":"Корпус №11 «Комбайновий завод»",
+        "address":"вул. Лук'яновича, 8",
+        "work":"Пн–Пт 8:00–18:00",
+        "desc":"Навчально-виробничий корпус університету. Технічні лабораторії та майстерні.",
+        "rooms":["Технічні лабораторії","Навчально-виробничі майстерні"],
+        "map":"https://maps.app.goo.gl/somelink11",
+    },
+    # ─── 3 гуртожитки ────────────────────────────────────────────────────────
+    {
+        "key":"d1","cat":"dorm","emoji":"🏠","num":"№1",
+        "name":"Гуртожиток №1",
+        "address":"вул. Шептицького, 13",
+        "work":"Цілодобово",
+        "desc":"Студентський гуртожиток ТНТУ. 555 місць. Зал для самопідготовки, спортивний майданчик.",
+        "rooms":["Комендатура — 1-й пов.","Зал самопідготовки","Спортивний майданчик","Тел.: 0352 25-35-96"],
+        "map":"https://maps.app.goo.gl/somelink_d1",
+    },
+    {
+        "key":"d2","cat":"dorm","emoji":"🏠","num":"№2",
+        "name":"Гуртожиток №2",
+        "address":"вул. Замонастирська, 18",
+        "work":"Цілодобово",
+        "desc":"Студентський гуртожиток ТНТУ. 274 місця. П'ятиповерхова будівля коридорного типу.",
+        "rooms":["Комендатура — 1-й пов.","Кімната самопідготовки","Спортивний майданчик","Тел.: 0352 52-44-86"],
+        "map":"https://maps.app.goo.gl/somelink_d2",
+    },
+    {
+        "key":"d3","cat":"dorm","emoji":"🏠","num":"№3",
+        "name":"Гуртожиток №3",
+        "address":"вул. Тарнавського, 7а",
+        "work":"Цілодобово",
+        "desc":"Студентський гуртожиток ТНТУ. Кухні з електроплитами на кожному поверсі, медпункт.",
+        "rooms":["Комендатура — 1-й пов.","Медичний пункт","Кухні на кожному поверсі","Душові — 1-й пов."],
+        "map":"https://maps.app.goo.gl/somelink_d3",
     },
 ]
 
-CATEGORIES = ["Навчальний корпус", "Інфраструктура", "Гуртожиток"]
-
-CAT_EMOJI = {
-    "Навчальний корпус": "🏫",
-    "Інфраструктура":    "🔧",
-    "Гуртожиток":        "🏠",
-}
+CATS = {"corp": ("🏫", "Навчальні корпуси"), "dorm": ("🏠", "Гуртожитки")}
 
 
-def main_keyboard() -> InlineKeyboardMarkup:
-    """Категорії об'єктів."""
+def main_kb() -> InlineKeyboardMarkup:
+    corp_count = sum(1 for b in BUILDINGS if b["cat"] == "corp")
+    dorm_count = sum(1 for b in BUILDINGS if b["cat"] == "dorm")
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=f"🏫 Навчальні корпуси ({corp_count})",
+            callback_data="bcat:corp"
+        )],
+        [InlineKeyboardButton(
+            text=f"🏠 Гуртожитки ({dorm_count})",
+            callback_data="bcat:dorm"
+        )],
+        [InlineKeyboardButton(
+            text="📋 Всі об'єкти списком",
+            callback_data="bcat:all"
+        )],
+    ])
+
+
+def category_kb(cat: str) -> InlineKeyboardMarkup:
+    items = [b for b in BUILDINGS if b["cat"] == cat]
     buttons = [
         [InlineKeyboardButton(
-            text=f"{CAT_EMOJI[cat]} {cat} ({sum(1 for b in BUILDINGS if b['cat']==cat)})",
-            callback_data=f"bcat:{cat}"
-        )]
-        for cat in CATEGORIES
-    ]
-    buttons.append([InlineKeyboardButton(
-        text="📋 Всі об'єкти одним списком",
-        callback_data="bcat:all"
-    )])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-def category_keyboard(cat: str) -> InlineKeyboardMarkup:
-    items = [b for b in BUILDINGS if b["cat"] == cat] if cat != "all" else BUILDINGS
-    buttons = [
-        [InlineKeyboardButton(
-            text=f"{b['emoji']} {b['name']}",
+            text=f"{b['emoji']} Корпус {b['num']}" if cat == "corp" else f"{b['emoji']} {b['name']}",
             callback_data=f"bld:{b['key']}"
         )]
         for b in items
@@ -200,71 +170,77 @@ def category_keyboard(cat: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def building_keyboard() -> InlineKeyboardMarkup:
+def back_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ До списку корпусів", callback_data="bld:menu")]
+        [InlineKeyboardButton(text="◀️ До списку", callback_data="bld:menu")]
     ])
 
 
-def format_building(b: dict) -> str:
+def fmt(b: dict) -> str:
     rooms = "\n".join(f"  • {r}" for r in b["rooms"])
     return (
         f"{b['emoji']} {b['name']}\n"
-        f"{'─' * 30}\n"
-        f"📍 Адреса: {b['address']}\n"
-        f"🕐 Режим роботи:\n  {b['work']}\n\n"
+        f"{'─'*32}\n"
+        f"📍 {b['address']}\n"
+        f"🕐 {b['work']}\n\n"
         f"{b['desc']}\n\n"
         f"Що тут є:\n{rooms}\n\n"
         f"🗺 Карта: {b['map']}"
     )
 
 
-def format_all_buildings() -> str:
+def fmt_all() -> str:
     lines = ["🏛 Всі об'єкти ТНТУ\n"]
-    for cat in CATEGORIES:
-        lines.append(f"\n{CAT_EMOJI[cat]} {cat.upper()}")
+    for cat, (emoji, label) in CATS.items():
+        lines.append(f"\n{emoji} {label.upper()}")
+        lines.append("─" * 28)
         for b in BUILDINGS:
             if b["cat"] == cat:
                 lines.append(f"{b['emoji']} {b['name']}")
                 lines.append(f"   📍 {b['address']}")
-                lines.append(f"   🕐 {b['work']}\n")
+    lines.append(f"\n🔗 Офіційна сторінка:\nhttps://tntu.edu.ua/?p=uk/about/building-locations")
     return "\n".join(lines)
 
 
 @router.message(F.text == "🏛 Корпуси ТНТУ")
 async def buildings_menu(message: Message):
+    corp = sum(1 for b in BUILDINGS if b["cat"] == "corp")
+    dorm = sum(1 for b in BUILDINGS if b["cat"] == "dorm")
     await message.answer(
-        f"🏛 Корпуси та об'єкти ТНТУ\n\n"
-        f"Всього об'єктів: {len(BUILDINGS)}\n\n"
+        f"🏛 Корпуси та гуртожитки ТНТУ\n\n"
+        f"Навчальних корпусів: {corp}\n"
+        f"Гуртожитків: {dorm}\n\n"
         "Оберіть категорію:",
-        reply_markup=main_keyboard()
+        reply_markup=main_kb()
     )
 
 
 @router.callback_query(F.data == "bld:menu")
 async def back_to_menu(callback: CallbackQuery):
+    corp = sum(1 for b in BUILDINGS if b["cat"] == "corp")
+    dorm = sum(1 for b in BUILDINGS if b["cat"] == "dorm")
     await callback.message.edit_text(
-        f"🏛 Корпуси та об'єкти ТНТУ\n\nВсього об'єктів: {len(BUILDINGS)}\n\nОберіть категорію:",
-        reply_markup=main_keyboard()
+        f"🏛 Корпуси та гуртожитки ТНТУ\n\nНавчальних корпусів: {corp}\nГуртожитків: {dorm}\n\nОберіть категорію:",
+        reply_markup=main_kb()
     )
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("bcat:"))
-async def category_chosen(callback: CallbackQuery):
+async def cat_chosen(callback: CallbackQuery):
     cat = callback.data.split(":", 1)[1]
     if cat == "all":
-        text = format_all_buildings()
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="◀️ Назад", callback_data="bld:menu")]
-        ])
-        await callback.message.edit_text(text, reply_markup=kb,
-                                         disable_web_page_preview=True)
+        await callback.message.edit_text(
+            fmt_all(),
+            reply_markup=back_kb(),
+            disable_web_page_preview=True
+        )
     else:
+        emoji, label = CATS.get(cat, ("", cat))
         count = sum(1 for b in BUILDINGS if b["cat"] == cat)
         await callback.message.edit_text(
-            f"{CAT_EMOJI.get(cat, '')} {cat}\n\nОберіть об'єкт ({count}):",
-            reply_markup=category_keyboard(cat)
+            f"{emoji} {label} ({count})\n\nОберіть об'єкт:",
+            reply_markup=category_kb(cat)
         )
     await callback.answer()
 
@@ -273,16 +249,12 @@ async def category_chosen(callback: CallbackQuery):
 async def building_info(callback: CallbackQuery):
     key = callback.data.split(":", 1)[1]
     if key == "menu":
-        return  # вже оброблено вище
-
+        return
     b = next((x for x in BUILDINGS if x["key"] == key), None)
     if not b:
         await callback.answer("❌ Не знайдено")
         return
-
     await callback.message.edit_text(
-        format_building(b),
-        reply_markup=building_keyboard(),
-        disable_web_page_preview=True
+        fmt(b), reply_markup=back_kb(), disable_web_page_preview=True
     )
     await callback.answer()

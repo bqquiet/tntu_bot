@@ -1,9 +1,6 @@
 """
-Запуск (з папки tntu_bot/):
-    python -m scrapers.teachers_scraper
-
-Обходить ВСІ кафедри ТНТУ через їхні офіційні піддомени,
-витягує список викладачів і зберігає в data/teachers.json.
+Запуск: python -m scrapers.teachers_scraper
+Джерело: tntu.edu.ua/?p=uk/structure/departments/{КОД}/staff
 """
 import json, time, os, re, urllib.parse
 import requests
@@ -13,95 +10,98 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 TNTU = "https://tntu.edu.ua"
 OUT  = "data/teachers.json"
 
-# ── Повний список кафедр: (субдомен, назва, факультет, [URL-шляхи сторінки персоналу]) ──
+# ── ПОВНИЙ список кафедр із правильними кодами з tntu.edu.ua ─────────────────
+# Формат: (код_на_сайті, назва_кафедри, факультет, [додаткові_субдомени])
 DEPARTMENTS = [
     # ─── ФІС ─────────────────────────────────────────────────────────────────
-    ("kaf-pi",  "Кафедра програмної інженерії (ПІ)",                            "ФІС",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/", "/team/"]),
+    ("pi",  "Кафедра програмної інженерії (ПІ)",                            "ФІС",
+     ["kaf-pi.tntu.edu.ua/staff2024/", "kaf-pi.tntu.edu.ua/kolektyv/"]),
 
-    ("kaf-kn",  "Кафедра комп'ютерних наук (КН)",                               "ФІС",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("kn",  "Кафедра комп'ютерних наук (КН)",                               "ФІС",
+     ["kaf-kn.tntu.edu.ua/personal-kafedry/", "kaf-kn.tntu.edu.ua/kolektyv/"]),
 
-    ("kaf-ks",  "Кафедра комп'ютерних систем та мереж (КС)",                    "ФІС",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("ks",  "Кафедра комп'ютерних систем та мереж (КС)",                    "ФІС",
+     ["kaf-ks.tntu.edu.ua/staff/", "kaf-ks.tntu.edu.ua/kolektyv/"]),
 
-    ("kaf-kb",  "Кафедра кібербезпеки (КБ)",                                    "ФІС",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("kb",  "Кафедра кібербезпеки (КБ)",                                    "ФІС",
+     ["kaf-kb.tntu.edu.ua/kolektyv/", "kaf-kb.tntu.edu.ua/staff/"]),
 
-    ("kaf-sa",  "Кафедра систем штучного інтелекту та аналізу даних (СА)",      "ФІС",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("sa",  "Кафедра систем штучного інтелекту та аналізу даних (СА)",      "ФІС",
+     ["kaf-sa.tntu.edu.ua/kolektyv/", "kaf-sa.tntu.edu.ua/staff/"]),
 
-    ("kaf-mm",  "Кафедра інформатики та матем. моделювання (ММ)",               "ФІС",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("mm",  "Кафедра інформатики та матем. моделювання (ММ)",               "ФІС",
+     ["kaf-mm.tntu.edu.ua/kolektyv/", "kaf-mm.tntu.edu.ua/staff/"]),
 
-    ("kaf-mn",  "Кафедра математичних методів в інженерії (МН)",                "ФІС",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("mn",  "Кафедра математичних методів в інженерії (МН)",                "ФІС",
+     ["kaf-mn.tntu.edu.ua/kolektyv/", "kaf-mn.tntu.edu.ua/staff/"]),
 
-    ("kaf-fz",  "Кафедра фізики (ФЗ)",                                          "ФІС",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("fz",  "Кафедра фізики (ФЗ)",                                          "ФІС",
+     ["physics.tntu.edu.ua/kolektyv/", "physics.tntu.edu.ua/staff/"]),
 
-    ("kaf-is",  "Кафедра інформаційної діяльності та соціальних наук (ІС)",     "ФІС",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("is",  "Кафедра інформаційної діяльності та соціальних наук (ІС)",     "ФІС",
+     ["kaf-is.tntu.edu.ua/kolektyv/", "kaf-is.tntu.edu.ua/staff/"]),
 
-    ("ui",      "Кафедра української та іноземних мов (УІМ)",                   "ФІС",
-     ["/stuff/", "/stuff", "/kolektyv/", "/staff/", "/personal/", "/workers/"]),
+    ("ui",  "Кафедра української та іноземних мов (УІМ)",                   "ФІС",
+     ["ui.tntu.edu.ua/stuff/", "ui.tntu.edu.ua/stuff", "ui.tntu.edu.ua/kolektyv/"]),
 
-    ("kaf-fi",  "Кафедра фізичного виховання і спорту (ФВС)",                   "ФІС",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("fi",  "Кафедра фізичного виховання і спорту (ФВС)",                   "ФІС",
+     ["kaf-fi.tntu.edu.ua/kolektyv/", "kaf-fi.tntu.edu.ua/staff/"]),
 
     # ─── ФПТ ─────────────────────────────────────────────────────────────────
-    ("kt",      "Кафедра комп'ютерно-інтегрованих технологій (КТ)",             "ФПТ",
-     ["/test-3/", "/kolektyv/", "/kafedra/workers/", "/team-category/workers/",
-      "/workers/", "/staff/", "/personal/", "/team/"]),
+    ("kt",  "Кафедра комп'ютерно-інтегрованих технологій (КТ)",             "ФПТ",
+     ["kt.tntu.edu.ua/test-3/", "kt.tntu.edu.ua/kolektyv/"]),
 
-    ("kaf-bs",  "Кафедра біотехнічних систем (БС)",                             "ФПТ",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("bs",  "Кафедра біотехнічних систем (БС)",                             "ФПТ",
+     ["kaf-bs.tntu.edu.ua/kolektyv/", "kaf-bs.tntu.edu.ua/staff/"]),
 
-    ("kaf-em",  "Кафедра електричної інженерії (ЕМ)",                           "ФПТ",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("em",  "Кафедра електричної інженерії (ЕМ)",                           "ФПТ",
+     ["kaf-em.tntu.edu.ua/kolektyv/", "kaf-em.tntu.edu.ua/staff/"]),
 
-    ("kaf-ra",  "Кафедра радіотехнічних систем (РА)",                           "ФПТ",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("ra",  "Кафедра радіотехнічних систем (РА)",                           "ФПТ",
+     ["kaf-ra.tntu.edu.ua/kolektyv/", "kaf-ra.tntu.edu.ua/staff/"]),
 
-    ("kaf-rb",  "Кафедра приладів і контрольно-вимірювальних систем (РБ)",      "ФПТ",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("rb",  "Кафедра приладів і контрольно-вимірювальних систем (РБ)",      "ФПТ",
+     ["kaf-rb.tntu.edu.ua/kolektyv/", "kaf-rb.tntu.edu.ua/staff/"]),
 
     # ─── ФМТ ─────────────────────────────────────────────────────────────────
-    ("kaf-vi",  "Кафедра конструювання верстатів, інструментів і машин (ВІ)",   "ФМТ",
-     ["/home/vykladachi/", "/vykladachi/", "/kolektyv/",
-      "/workers/", "/staff/", "/personal/"]),
+    ("vi",  "Кафедра конструювання верстатів, інструментів та машин (ВІ)",  "ФМТ",
+     ["kaf-vi.tntu.edu.ua/home/vykladachi/", "kaf-vi.tntu.edu.ua/vykladachi/"]),
 
-    ("kaf-av",  "Кафедра автоматизації технологічних процесів (АВ)",            "ФМТ",
-     ["/index.php/mn-main/mn-workers", "/kolektyv/",
-      "/workers/", "/staff/", "/personal/"]),
+    ("av",  "Кафедра автоматизації технологічних процесів і виробництв (АВ)", "ФМТ",
+     ["kaf-av.tntu.edu.ua/index.php/mn-main/mn-workers",
+      "kaf-av.tntu.edu.ua/kolektyv/"]),
 
-    ("kaf-mb",  "Кафедра будівельної механіки та матеріалів (МБ)",              "ФМТ",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("mb",  "Кафедра будівельної механіки (МБ)",                            "ФМТ",
+     ["kaf-mb.tntu.edu.ua/kolektyv/", "kaf-mb.tntu.edu.ua/staff/"]),
 
-    ("kaf-inp", "Кафедра харчових технологій та хімії (ІНП)",                   "ФМТ",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("inp", "Кафедра харчових технологій та хімії (ІНП)",                   "ФМТ",
+     ["kaf-inp.tntu.edu.ua/kolektyv/", "kaf-inp.tntu.edu.ua/staff/"]),
 
-    ("kaf-tp",  "Кафедра транспортних технологій та механіки (ТП)",             "ФМТ",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("tp",  "Кафедра транспортних технологій та механіки (ТП)",             "ФМТ",
+     ["kaf-tp.tntu.edu.ua/kolektyv/", "kaf-tp.tntu.edu.ua/staff/"]),
 
-    ("kaf-tmi", "Кафедра технічної механіки та машинознавства (ТМІ)",           "ФМТ",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("tm",  "Кафедра технічної механіки та сільськогосподарських машин (ТМ)", "ФМТ",
+     ["kaf-tm.tntu.edu.ua/kolektyv/", "kaf-tmi.tntu.edu.ua/kolektyv/"]),
 
     # ─── ФЕМ ─────────────────────────────────────────────────────────────────
-    ("kaf-ef",  "Кафедра економіки та фінансів (ЕФ)",                           "ФЕМ",
-     ["/personal/", "/kolektyv/", "/staff/", "/workers/", "/sklad-kafedry/"]),
+    ("ef",  "Кафедра економіки та фінансів (ЕФ)",                           "ФЕМ",
+     ["kaf-ef.tntu.edu.ua/personal/", "kaf-ef.tntu.edu.ua/kolektyv/"]),
 
-    ("kaf-bo",  "Кафедра бухгалтерського обліку та аудиту (БО)",                "ФЕМ",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("oa",  "Кафедра бухгалтерського обліку та аудиту (ОА)",                "ФЕМ",
+     ["kaf-oa.tntu.edu.ua/kolektyv/", "kaf-oa.tntu.edu.ua/staff/"]),
 
-    ("kaf-pm",  "Кафедра промислового маркетингу (ПМ)",                         "ФЕМ",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("mk",  "Кафедра промислового маркетингу (МК)",                         "ФЕМ",
+     ["kaf-pm.tntu.edu.ua/kolektyv/", "kaf-mk.tntu.edu.ua/kolektyv/"]),
 
-    ("kaf-ma",  "Кафедра менеджменту та адміністрування (МА)",                  "ФЕМ",
-     ["/kolektyv/", "/staff/", "/personal/", "/workers/", "/sklad-kafedry/"]),
+    ("ma",  "Кафедра менеджменту та адміністрування (МА)",                  "ФЕМ",
+     ["kaf-ma.tntu.edu.ua/kolektyv/", "kaf-ma.tntu.edu.ua/staff/"]),
 
-    ("kaf-mp",  "Кафедра управління інноваційною діяльністю та сферою послуг (МП)", "ФЕМ",
-     ["/stuff", "/stuff/", "/kolektyv/", "/workers/", "/staff/", "/personal/"]),
+    ("uid", "Кафедра управління інноваційною діяльністю та сферою послуг (УІД)", "ФЕМ",
+     ["kaf-mp.tntu.edu.ua/stuff", "kaf-mp.tntu.edu.ua/stuff/",
+      "kaf-uid.tntu.edu.ua/kolektyv/"]),
+
+    ("be",  "Кафедра економічної кібернетики (БЕ)",                         "ФЕМ",
+     ["kaf-be.tntu.edu.ua/kolektyv/", "kaf-be.tntu.edu.ua/staff/"]),
 ]
 
 SKIP = {
@@ -109,12 +109,13 @@ SKIP = {
     "інститут","персонал","колектив","навчання","розклад","контакти",
     "головна","новини","меню","пошук","архів","copyright","all","rights",
     "reserved","menu","home","close","search","науково","педагогічний",
-    "навчально","допоміжний","powered","wordpress",
+    "навчально","допоміжний","powered","wordpress","при використанні",
 }
 
 POSITION_KW = [
-    "проф","доц","асист","викладач","зав.","д-р","канд","PhD","доктор",
-    "к.т.н","к.е.н","к.ф.-м.н","д.т.н","д.е.н","старший","ст.викл",
+    "проф","доц","асист","викладач","зав.","д-р","канд","PhD","Ph.D","доктор",
+    "к.т.н","к.е.н","к.ф.-м.н","д.т.н","д.е.н","д.ф.-м.н","к.пед",
+    "старший","ст.викл","завідувач",
 ]
 
 
@@ -124,12 +125,14 @@ def make_schedule_url(pib: str) -> str:
 
 def fetch(url: str) -> BeautifulSoup | None:
     try:
+        if not url.startswith("http"):
+            url = "https://" + url
         r = requests.get(url, headers=HEADERS, timeout=8)
         r.encoding = "utf-8"
         if r.status_code != 200 or len(r.text) < 400:
             return None
         low = r.text.lower()
-        if any(x in low[:600] for x in ["404","не знайдено","page not found","немає такої"]):
+        if any(x in low[:600] for x in ["404","не знайдено","page not found"]):
             return None
         return BeautifulSoup(r.text, "html.parser")
     except Exception:
@@ -148,7 +151,6 @@ def is_pib(text: str) -> bool:
     lower = text.lower()
     if any(s in lower for s in SKIP):
         return False
-    # Мінімум 2 слова починаються з великої
     return sum(1 for w in words if w and w[0].isupper()) >= 2
 
 
@@ -164,10 +166,54 @@ def get_email(text: str) -> str:
     return m.group(0) if m else ""
 
 
-def parse_page(soup: BeautifulSoup, dept: str, faculty: str) -> list[dict]:
+# ── Парсер сторінок з ГОЛОВНОГО САЙТУ ТНТУ ───────────────────────────────────
+def parse_main_site(dept_code: str, dept_name: str, faculty: str) -> list[dict]:
+    """
+    Парсить https://tntu.edu.ua/?p=uk/structure/departments/{code}/staff
+    Там дані у форматі:
+    <li>Прізвище Ім'я По-батькові, к.т.н., доцент, завідувач кафедри</li>
+    """
+    url = f"{TNTU}/?p=uk/structure/departments/{dept_code}/staff"
+    soup = fetch(url)
+    if not soup:
+        return []
+
     found: dict[str, dict] = {}
 
-    # Спосіб 1 — посилання ?p=uk/schedule&t=ПІБ (найнадійніший)
+    for li in soup.find_all("li"):
+        text = re.sub(r"\s+", " ", li.get_text(" ", strip=True))
+        if len(text) < 8 or len(text) > 300:
+            continue
+
+        parts = text.split(",", 1)
+        pib = parts[0].strip()
+        position = parts[1].strip() if len(parts) > 1 else ""
+
+        if not is_pib(pib) or pib in found:
+            continue
+
+        found[pib] = {
+            "name": pib,
+            "position": position,
+            "department": dept_name,
+            "faculty": faculty,
+            "email": get_email(text),
+            "courses": [],
+            "schedule_url": make_schedule_url(pib),
+        }
+
+    return list(found.values())
+
+
+# ── Парсер піддоменів кафедр ──────────────────────────────────────────────────
+def parse_subdomain(url: str, dept_name: str, faculty: str) -> list[dict]:
+    soup = fetch(url)
+    if not soup:
+        return []
+
+    found: dict[str, dict] = {}
+
+    # Спосіб 1 — посилання ?p=uk/schedule&t=ПІБ
     for a in soup.find_all("a", href=True):
         if "?p=uk/schedule&t=" not in a["href"]:
             continue
@@ -181,14 +227,14 @@ def parse_page(soup: BeautifulSoup, dept: str, faculty: str) -> list[dict]:
         found[pib] = {
             "name": pib,
             "position": get_position(pt, pib),
-            "department": dept, "faculty": faculty,
+            "department": dept_name, "faculty": faculty,
             "email": get_email(pt), "courses": [],
             "schedule_url": make_schedule_url(pib),
         }
     if found:
         return list(found.values())
 
-    # Спосіб 2 — <strong>/<b>/<h3>/<h4> з ПІБ
+    # Спосіб 2 — <strong>/<b>/<h3>/<h4>
     for tag in soup.find_all(["strong", "b", "h3", "h4", "h5"]):
         pib = re.sub(r"\s+", " ", tag.get_text(" ", strip=True))
         if not is_pib(pib) or pib in found:
@@ -197,7 +243,7 @@ def parse_page(soup: BeautifulSoup, dept: str, faculty: str) -> list[dict]:
         found[pib] = {
             "name": pib,
             "position": get_position(pt, pib),
-            "department": dept, "faculty": faculty,
+            "department": dept_name, "faculty": faculty,
             "email": get_email(pt), "courses": [],
             "schedule_url": make_schedule_url(pib),
         }
@@ -221,7 +267,7 @@ def parse_page(soup: BeautifulSoup, dept: str, faculty: str) -> list[dict]:
         found[pib] = {
             "name": pib,
             "position": get_position(text, pib),
-            "department": dept, "faculty": faculty,
+            "department": dept_name, "faculty": faculty,
             "email": get_email(text), "courses": [],
             "schedule_url": make_schedule_url(pib),
         }
@@ -229,59 +275,62 @@ def parse_page(soup: BeautifulSoup, dept: str, faculty: str) -> list[dict]:
     return list(found.values())
 
 
-def scrape_dept(subdomain: str, dept_name: str, faculty: str, paths: list[str]) -> list[dict]:
-    base = f"https://{subdomain}.tntu.edu.ua"
-    for path in paths:
-        soup = fetch(base + path)
-        if not soup:
-            continue
-        teachers = parse_page(soup, dept_name, faculty)
-        if teachers:
-            print(f"    OK  {base + path}  ({len(teachers)} ос.)")
-            return teachers
-        time.sleep(0.2)
-    return []
-
-
 def run():
-    print("=" * 68)
+    print("=" * 70)
     print("  Скрапер викладачів ТНТУ")
-    print("=" * 68)
+    print("  Джерело 1: tntu.edu.ua/structure/departments/{КОД}/staff")
+    print("  Джерело 2: піддомени кафедр")
+    print("=" * 70)
+
     all_t, failed = [], []
 
-    for subdomain, dept_name, faculty, paths in DEPARTMENTS:
+    for dept_code, dept_name, faculty, extra_urls in DEPARTMENTS:
         print(f"\n[{faculty}] {dept_name[:52]}...")
-        teachers = scrape_dept(subdomain, dept_name, faculty, paths)
+
+        # 1. Спробуємо головний сайт ТНТУ (найнадійніший)
+        teachers = parse_main_site(dept_code, dept_name, faculty)
         if teachers:
+            print(f"    OK (main site) -> {len(teachers)} ос.")
             all_t.extend(teachers)
-        else:
-            failed.append((subdomain, dept_name))
-            print("    FAIL — не знайдено жодного URL")
+            time.sleep(0.3)
+            continue
+
+        # 2. Спробуємо піддомени
+        found_on_sub = False
+        for url in extra_urls:
+            teachers = parse_subdomain(url, dept_name, faculty)
+            if teachers:
+                print(f"    OK ({url}) -> {len(teachers)} ос.")
+                all_t.extend(teachers)
+                found_on_sub = True
+                break
+            time.sleep(0.2)
+
+        if not found_on_sub:
+            failed.append(dept_name)
+            print("    FAIL")
+
         time.sleep(0.4)
 
-    # Унікальні по ПІБ
+    # Унікальні, відсортовані
     seen, unique = set(), []
     for t in all_t:
         if t["name"] not in seen:
             seen.add(t["name"])
             unique.append(t)
-
-    # Сортуємо: факультет → кафедра → прізвище
     unique.sort(key=lambda t: (t["faculty"], t["department"], t["name"]))
 
     os.makedirs("data", exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(unique, f, ensure_ascii=False, indent=2)
 
-    print("\n" + "=" * 68)
-    print(f"  Збережено {len(unique)} викладачів -> {OUT}")
+    print("\n" + "=" * 70)
+    print(f"  Збережено: {len(unique)} викладачів -> {OUT}")
     if failed:
         print(f"\n  Не знайдено ({len(failed)} кафедр):")
-        for sd, nm in failed:
-            print(f"    {sd}.tntu.edu.ua  |  {nm[:50]}")
-        print("\n  Порада: відкрий браузер, зайди на сайт кафедри вручну,")
-        print("  знайди сторінку з персоналом і надішли URL розробнику.")
-    print("=" * 68)
+        for n in failed:
+            print(f"    - {n}")
+    print("=" * 70)
 
 
 if __name__ == "__main__":
