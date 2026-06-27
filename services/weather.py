@@ -1,104 +1,60 @@
 import requests
 from config import WEATHER_API_KEY, WEATHER_CITY
 
-
-# Таблиця погодних умов → емодзі
-WEATHER_EMOJI = {
-    "clear sky": "☀️",
-    "few clouds": "🌤",
-    "scattered clouds": "⛅️",
-    "broken clouds": "☁️",
-    "overcast clouds": "☁️",
-    "light rain": "🌦",
-    "moderate rain": "🌧",
-    "heavy intensity rain": "🌧",
-    "thunderstorm": "⛈",
-    "snow": "❄️",
-    "light snow": "🌨",
-    "mist": "🌫",
-    "fog": "🌫",
-    "drizzle": "🌦",
+EMOJI = {
+    "clear sky":"☀️","few clouds":"🌤","scattered clouds":"⛅️",
+    "broken clouds":"☁️","overcast clouds":"☁️","light rain":"🌦",
+    "moderate rain":"🌧","heavy intensity rain":"🌧","thunderstorm":"⛈",
+    "snow":"❄️","light snow":"🌨","mist":"🌫","fog":"🌫","drizzle":"🌦",
 }
-
-WIND_DIRECTIONS = [
-    "Пн", "ПнСх", "Сх", "ПдСх",
-    "Пд", "ПдЗх", "Зх", "ПнЗх", "Пн"
-]
+DIRS = ["Пн","ПнСх","Сх","ПдСх","Пд","ПдЗх","Зх","ПнЗх"]
 
 
 def get_weather() -> str:
-    """
-    Отримує поточну погоду в Тернополі через OpenWeatherMap API.
-    Безкоштовний план — до 1000 запитів/день.
-    """
-    if WEATHER_API_KEY == "ВСТАВ_СВІЙ_КЛЮЧ_ТУТ":
-        return (
-            "⚙️ API-ключ для погоди не налаштований\\.\n"
-            "Зареєструйся на openweathermap\\.org і встав ключ у config\\.py"
-        )
-
-    url = "https://api.openweathermap.org/data/2.5/weather"
-    params = {
-        "q": WEATHER_CITY,
-        "appid": WEATHER_API_KEY,
-        "lang": "uk",
-        "units": "metric",
-    }
+    if not WEATHER_API_KEY:
+        return ("⚙️ <b>API ключ не налаштований</b>\n\n"
+                "Зареєструйся на <a href=\"https://openweathermap.org\">openweathermap.org</a> "
+                "і додай ключ у файл .env")
 
     try:
-        response = requests.get(url, params=params, timeout=10)
-        data = response.json()
+        r = requests.get(
+            "https://api.openweathermap.org/data/2.5/weather",
+            params={"q": WEATHER_CITY, "appid": WEATHER_API_KEY,
+                    "lang": "uk", "units": "metric"},
+            timeout=8
+        )
+        d = r.json()
     except Exception:
-        return "❌ Не вдалося отримати погоду\\. Спробуй пізніше\\."
+        return "❌ Не вдалося отримати погоду. Спробуй пізніше."
 
-    if data.get("cod") != 200:
-        return f"❌ Помилка API погоди: {data.get('message', 'невідома помилка')}"
+    if d.get("cod") != 200:
+        return f"❌ Помилка: {d.get('message','невідома')}"
 
-    # Основні дані
-    temp = round(data["main"]["temp"])
-    feels = round(data["main"]["feels_like"])
-    humidity = data["main"]["humidity"]
-    description = data["weather"][0]["description"].capitalize()
-    desc_en = data["weather"][0]["main"].lower()
-    wind_speed = data["wind"]["speed"]
-    wind_deg = data["wind"].get("deg", 0)
+    temp   = round(d["main"]["temp"])
+    feels  = round(d["main"]["feels_like"])
+    hum    = d["main"]["humidity"]
+    desc   = d["weather"][0]["description"].capitalize()
+    desc_e = d["weather"][0]["description"].lower()
+    wind   = d["wind"]["speed"]
+    deg    = d["wind"].get("deg", 0)
+    emoji  = EMOJI.get(desc_e, "🌡")
+    wdir   = DIRS[round(deg / 45) % 8]
 
-    # Емодзі погоди
-    emoji = WEATHER_EMOJI.get(data["weather"][0]["description"].lower(), "🌡")
+    tip = ""
+    if any(w in desc_e for w in ["rain","drizzle","thunderstorm"]):
+        tip = "\n☂️ <i>Візьми парасольку!</i>"
+    elif temp < 0:
+        tip = "\n🧥 <i>Одягнись тепліше!</i>"
+    elif temp < 5:
+        tip = "\n🧤 <i>Не забудь куртку!</i>"
+    elif temp > 28:
+        tip = "\n💧 <i>Спекотно — візьми воду!</i>"
 
-    # Напрям вітру
-    wind_dir = WIND_DIRECTIONS[round(wind_deg / 45) % 8]
-
-    # Порада
-    tip = _get_tip(data)
-
-    lines = [
-        f"{emoji} *Погода в Тернополі*\n",
-        f"🌡 Температура: *{temp}°C* (відчувається як {feels}°C)",
-        f"☁️ {description}",
-        f"💧 Вологість: {humidity}%",
-        f"💨 Вітер: {wind_speed} м/с, {wind_dir}",
-    ]
-
-    if tip:
-        lines.append(f"\n💡 {tip}")
-
-    return "\n".join(lines)
-
-
-def _get_tip(data: dict) -> str:
-    """Порада для студента на основі погоди."""
-    desc = data["weather"][0]["description"].lower()
-    temp = data["main"]["temp"]
-
-    if "rain" in desc or "drizzle" in desc or "thunderstorm" in desc:
-        return "Візьми парасольку! ☂️"
-    if temp < 0:
-        return "Одягнись тепліше! 🧥"
-    if temp < 5:
-        return "Холодно — не забудь куртку! 🧤"
-    if temp > 28:
-        return "Спекотно — візьми воду! 💧"
-    if "snow" in desc:
-        return "На вулиці сніг — обережно на слизькому! ❄️"
-    return ""
+    return (
+        f"{emoji} <b>Погода в Тернополі</b>\n"
+        f"{'─'*24}\n"
+        f"🌡 Температура: <b>{temp}°C</b> (відчувається {feels}°C)\n"
+        f"☁️ {desc}\n"
+        f"💧 Вологість: {hum}%\n"
+        f"💨 Вітер: {wind} м/с, {wdir}{tip}"
+    )

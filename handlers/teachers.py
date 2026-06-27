@@ -1,213 +1,160 @@
-import json
-import os
+import json, os
 from aiogram import Router, F
-from aiogram.types import (
-    Message, CallbackQuery,
-    InlineKeyboardMarkup, InlineKeyboardButton
-)
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 router = Router()
-TEACHERS_FILE = "data/teachers.json"
-FACULTIES_LIST = ["ФІС", "ФПТ", "ФМТ", "ФЕМ"]
+FILE = "data/teachers.json"
+FACULTIES = ["ФІС","ФПТ","ФМТ","ФЕМ"]
 
 
-class TeacherStates(StatesGroup):
-    waiting_for_query = State()
+class TS(StatesGroup):
+    query = State()
 
 
-# ─── Дані ───────────────────────────────────────────────────────────────────
-
-def load_teachers() -> list[dict]:
-    if not os.path.exists(TEACHERS_FILE):
+def load() -> list[dict]:
+    if not os.path.exists(FILE):
         return []
-    with open(TEACHERS_FILE, "r", encoding="utf-8") as f:
+    with open(FILE, encoding="utf-8") as f:
         return json.load(f)
 
 
-def search_teachers(query: str, faculty_filter: str = "") -> list[dict]:
-    teachers = load_teachers()
-    q = query.lower().strip()
-    results = []
-    for t in teachers:
-        if faculty_filter and t.get("faculty", "") != faculty_filter:
-            continue
-        haystack = " ".join([
-            t.get("name", ""),
-            t.get("position", ""),
-            t.get("department", ""),
-            " ".join(t.get("courses", [])),
-        ]).lower()
-        if q in haystack:
-            results.append(t)
-    return results
+def search(q: str, fac: str = "") -> list[dict]:
+    q = q.lower()
+    return [
+        t for t in load()
+        if (not fac or t.get("faculty") == fac)
+        and q in " ".join([t.get("name",""), t.get("position",""),
+                           t.get("department",""), *t.get("courses",[])]).lower()
+    ]
 
 
-def format_teacher(t: dict) -> str:
-    lines = [f"👨‍🏫 {t['name']}"]
+def card(t: dict) -> str:
+    lines = [f"👨‍🏫 <b>{t['name']}</b>"]
     if t.get("position"):
-        lines.append(f"📌 {t['position']}")
-    lines.append(f"🏛 {t['department']} ({t.get('faculty','')})")
+        lines.append(f"📌 <i>{t['position']}</i>")
+    lines.append(f"🏛 {t['department']} · <b>{t.get('faculty','')}</b>")
     if t.get("email"):
         lines.append(f"📧 {t['email']}")
     if t.get("courses"):
         lines.append(f"📚 {', '.join(t['courses'])}")
     if t.get("consultation"):
-        lines.append(f"🕐 Консультації: {t['consultation']}")
+        lines.append(f"🕐 {t['consultation']}")
     return "\n".join(lines)
 
 
-def teacher_keyboard(t: dict) -> InlineKeyboardMarkup:
-    """Кнопки для конкретного викладача."""
-    buttons = []
+def schedule_kb(t: dict) -> InlineKeyboardMarkup | None:
     if t.get("schedule_url"):
-        buttons.append([InlineKeyboardButton(
-            text="📅 Розклад викладача",
-            url=t["schedule_url"]
-        )])
-    return InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
+        return InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="📅 Розклад викладача", url=t["schedule_url"])
+        ]])
+    return None
 
 
-# ─── Клавіатури ─────────────────────────────────────────────────────────────
-
-def faculty_keyboard() -> InlineKeyboardMarkup:
+def fac_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f, callback_data=f"tf:{f}") for f in FACULTIES_LIST[:2]],
-        [InlineKeyboardButton(text=f, callback_data=f"tf:{f}") for f in FACULTIES_LIST[2:]],
+        [InlineKeyboardButton(text=f, callback_data=f"tf:{f}") for f in FACULTIES[:2]],
+        [InlineKeyboardButton(text=f, callback_data=f"tf:{f}") for f in FACULTIES[2:]],
         [InlineKeyboardButton(text="🔍 Пошук по всьому університету", callback_data="tf:all")],
     ])
 
 
-def dept_keyboard(faculty: str) -> tuple[InlineKeyboardMarkup, list[str]]:
-    teachers = load_teachers()
-    depts = sorted(set(
-        t["department"] for t in teachers
-        if t.get("faculty") == faculty
-    ))
+def dept_kb(fac: str):
+    all_t = load()
+    depts = sorted(set(t["department"] for t in all_t if t.get("faculty") == fac))
     buttons = [
-        [InlineKeyboardButton(text=d[:38], callback_data=f"tdept:{faculty}:{i}")]
+        [InlineKeyboardButton(text=d[:40], callback_data=f"td:{fac}:{i}")]
         for i, d in enumerate(depts)
     ]
-    buttons.append([InlineKeyboardButton(text="🔍 Пошук по імені/дисципліні", callback_data=f"tf:{faculty}")])
+    buttons.append([InlineKeyboardButton(text="🔍 Пошук по імені", callback_data=f"tf:{fac}")])
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="tf:back")])
     return InlineKeyboardMarkup(inline_keyboard=buttons), depts
 
 
-# ─── Хендлери ────────────────────────────────────────────────────────────────
-
 @router.message(F.text == "👨‍🏫 Викладачі")
-async def teacher_menu(message: Message, state: FSMContext):
+async def menu(message: Message, state: FSMContext):
     await state.clear()
-    total = len(load_teachers())
+    n = len(load())
     await message.answer(
-        f"👨‍🏫 Викладачі ТНТУ\n\n"
-        f"В базі: {total} викладачів з усіх факультетів\n\n"
-        "Оберіть факультет або скористайтеся пошуком:",
-        reply_markup=faculty_keyboard()
+        f"👨‍🏫 <b>Викладачі ТНТУ</b>\n\nВ базі: <b>{n}</b> викладачів\n\nОберіть факультет:",
+        reply_markup=fac_kb(), parse_mode="HTML"
     )
 
 
 @router.callback_query(F.data == "tf:back")
-async def back_to_faculty(callback: CallbackQuery, state: FSMContext):
+async def back(cb: CallbackQuery, state: FSMContext):
     await state.clear()
-    total = len(load_teachers())
-    await callback.message.edit_text(
-        f"👨‍🏫 Викладачі ТНТУ\n\nВ базі: {total} викладачів\n\nОберіть факультет:",
-        reply_markup=faculty_keyboard()
+    n = len(load())
+    await cb.message.edit_text(
+        f"👨‍🏫 <b>Викладачі ТНТУ</b>\n\nВ базі: <b>{n}</b> викладачів\n\nОберіть факультет:",
+        reply_markup=fac_kb(), parse_mode="HTML"
     )
-    await callback.answer()
+    await cb.answer()
 
 
 @router.callback_query(F.data.startswith("tf:"))
-async def faculty_chosen(callback: CallbackQuery, state: FSMContext):
-    faculty = callback.data.split(":", 1)[1]
-
-    if faculty == "all":
-        await state.update_data(faculty_filter="")
-        await state.set_state(TeacherStates.waiting_for_query)
-        await callback.message.edit_text(
-            "🔍 Пошук по всьому університету\n\n"
-            "Введи прізвище, ім'я, назву кафедри або дисципліну:"
+async def fac_chosen(cb: CallbackQuery, state: FSMContext):
+    fac = cb.data.split(":",1)[1]
+    if fac == "all":
+        await state.update_data(fac="")
+        await state.set_state(TS.query)
+        await cb.message.edit_text(
+            "🔍 <b>Пошук по всьому університету</b>\n\nВведи прізвище, ім'я або дисципліну:",
+            parse_mode="HTML"
         )
-        await callback.answer()
+        await cb.answer()
         return
-
-    kb, depts = dept_keyboard(faculty)
-    count = sum(1 for t in load_teachers() if t.get("faculty") == faculty)
-    await callback.message.edit_text(
-        f"👨‍🏫 {faculty} — {count} викладачів\n\n"
-        "Оберіть кафедру або скористайтеся пошуком:",
-        reply_markup=kb
+    if fac == "back":
+        return
+    kb, depts = dept_kb(fac)
+    n = sum(1 for t in load() if t.get("faculty") == fac)
+    await cb.message.edit_text(
+        f"👨‍🏫 <b>{fac}</b> — {n} викладачів\n\nОберіть кафедру:",
+        reply_markup=kb, parse_mode="HTML"
     )
-    await state.update_data(faculty_filter=faculty, depts=depts)
-    await callback.answer()
+    await state.update_data(fac=fac, depts=depts)
+    await cb.answer()
 
 
-@router.callback_query(F.data.startswith("tdept:"))
-async def dept_chosen(callback: CallbackQuery, state: FSMContext):
-    _, faculty, idx_str = callback.data.split(":", 2)
+@router.callback_query(F.data.startswith("td:"))
+async def dept_chosen(cb: CallbackQuery, state: FSMContext):
+    _, fac, idx = cb.data.split(":", 2)
     data = await state.get_data()
     depts = data.get("depts", [])
-    idx = int(idx_str)
-
+    idx = int(idx)
     if idx >= len(depts):
-        await callback.answer("❌ Помилка")
+        await cb.answer("❌")
         return
-
-    dept_name = depts[idx]
-    teachers = [t for t in load_teachers() if t.get("department") == dept_name]
-
-    if not teachers:
-        await callback.answer("Викладачів не знайдено")
-        return
-
-    await callback.answer()
-
-    # Відправляємо кожного викладача окремим повідомленням з кнопкою розкладу
-    header = f"🏛 {dept_name}\nВикладачів: {len(teachers)}\n"
-    await callback.message.edit_text(header)
-
+    dept = depts[idx]
+    teachers = [t for t in load() if t.get("department") == dept]
+    await cb.answer()
+    await cb.message.edit_text(
+        f"🏛 <b>{dept}</b>\nВикладачів: {len(teachers)}",
+        parse_mode="HTML"
+    )
     for t in teachers:
-        kb = teacher_keyboard(t)
-        try:
-            if kb:
-                await callback.message.answer(format_teacher(t), reply_markup=kb)
-            else:
-                await callback.message.answer(format_teacher(t))
-        except Exception:
-            pass
+        kb = schedule_kb(t)
+        await cb.message.answer(card(t), parse_mode="HTML",
+                                reply_markup=kb if kb else None)
 
 
-@router.message(TeacherStates.waiting_for_query)
-async def teacher_search_handler(message: Message, state: FSMContext):
+@router.message(TS.query)
+async def do_search(message: Message, state: FSMContext):
     data = await state.get_data()
-    faculty_filter = data.get("faculty_filter", "")
+    fac = data.get("fac", "")
     await state.clear()
-
-    query = message.text.strip()
-    if len(query) < 2:
-        await message.answer("❌ Запит занадто короткий. Введи хоча б 2 символи.")
+    q = message.text.strip()
+    if len(q) < 2:
+        await message.answer("❌ Запит занадто короткий.")
         return
-
-    results = search_teachers(query, faculty_filter)
-
+    results = search(q, fac)
     if not results:
-        hint = f" на факультеті {faculty_filter}" if faculty_filter else ""
-        await message.answer(
-            f"Нічого не знайдено за запитом \"{query}\"{hint}.\n"
-            "Спробуй інше прізвище або назву дисципліни."
-        )
+        await message.answer(f"🔍 За запитом <b>{q}</b> нічого не знайдено.", parse_mode="HTML")
         return
-
-    await message.answer(f"Знайдено {len(results)} результатів за запитом \"{query}\":")
-
+    await message.answer(f"🔍 Знайдено: <b>{len(results)}</b>", parse_mode="HTML")
     for t in results[:5]:
-        kb = teacher_keyboard(t)
-        if kb:
-            await message.answer(format_teacher(t), reply_markup=kb)
-        else:
-            await message.answer(format_teacher(t))
-
+        kb = schedule_kb(t)
+        await message.answer(card(t), parse_mode="HTML", reply_markup=kb)
     if len(results) > 5:
-        await message.answer(f"...і ще {len(results) - 5}. Уточни запит для точнішого результату.")
+        await message.answer(f"<i>...і ще {len(results)-5}. Уточни запит.</i>", parse_mode="HTML")

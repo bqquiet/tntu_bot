@@ -1,210 +1,106 @@
-import json
-import os
+import json, os
 from datetime import datetime
 from aiogram import Router, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 router = Router()
-REMINDERS_FILE = "data/reminders.json"
+FILE = "data/reminders.json"
 
+class RS(StatesGroup):
+    text = State()
+    dt   = State()
 
-class ReminderStates(StatesGroup):
-    waiting_for_text = State()
-    waiting_for_datetime = State()
+def load() -> dict:
+    return json.load(open(FILE, encoding="utf-8")) if os.path.exists(FILE) else {}
 
-
-# ─── JSON утиліти ────────────────────────────────────────────────────────────
-
-def load_reminders() -> dict:
-    if os.path.exists(REMINDERS_FILE):
-        with open(REMINDERS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-
-def save_reminders(data: dict):
+def save(d: dict):
     os.makedirs("data", exist_ok=True)
-    with open(REMINDERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    json.dump(d, open(FILE, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 
+def get_active(uid: int) -> list:
+    return [r for r in load().get(str(uid), []) if not r.get("sent")]
 
-def get_user_reminders(user_id: int) -> list[dict]:
-    return load_reminders().get(str(user_id), [])
-
-
-def add_reminder(user_id: int, text: str, remind_at: str) -> int:
-    data = load_reminders()
-    uid = str(user_id)
-    if uid not in data:
-        data[uid] = []
-    new_id = max((r["id"] for r in data[uid]), default=0) + 1
-    data[uid].append({
-        "id": new_id,
-        "text": text,
-        "remind_at": remind_at,  # формат: DD.MM.YYYY HH:MM
-        "sent": False,
-    })
-    save_reminders(data)
-    return new_id
-
-
-def delete_reminder(user_id: int, reminder_id: int):
-    data = load_reminders()
-    uid = str(user_id)
-    data[uid] = [r for r in data.get(uid, []) if r["id"] != reminder_id]
-    save_reminders(data)
-
-
-# ─── Клавіатура ──────────────────────────────────────────────────────────────
-
-def reminders_keyboard(reminders: list[dict]) -> InlineKeyboardMarkup:
-    buttons = []
-    for r in reminders[:8]:
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"🗑 #{r['id']} — {r['text'][:20]}...",
-                callback_data=f"rem_del:{r['id']}"
-            )
-        ])
+def rem_kb(rems: list) -> InlineKeyboardMarkup:
+    buttons = [[InlineKeyboardButton(text=f"🗑 #{r['id']} {r['text'][:20]}",
+                                     callback_data=f"rem_del:{r['id']}")]
+               for r in rems[:8]]
     buttons.append([InlineKeyboardButton(text="➕ Додати нагадування", callback_data="rem_add")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-
-# ─── Хендлери ────────────────────────────────────────────────────────────────
+def render(rems: list) -> str:
+    if not rems:
+        return "⏰ <b>Нагадування</b>\n\nАктивних нагадувань немає."
+    lines = [f"⏰ <b>Мої нагадування</b> ({len(rems)})\n{'─'*22}"]
+    for r in rems:
+        lines.append(f"🔔 <b>#{r['id']}</b> {r['text']}\n<i>📅 {r['remind_at']}</i>")
+    return "\n\n".join(lines)
 
 @router.message(F.text == "⏰ Нагадування")
-async def reminders_menu(message: Message, state: FSMContext):
+async def rem_menu(message: Message, state: FSMContext):
     await state.clear()
-    reminders = [r for r in get_user_reminders(message.from_user.id) if not r["sent"]]
-
-    if not reminders:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Додати нагадування", callback_data="rem_add")]
-        ])
-        await message.answer(
-            "⏰ *Нагадування*\n\nАктивних нагадувань немає.",
-            reply_markup=kb,
-            parse_mode="Markdown"
-        )
-        return
-
-    lines = ["⏰ *Твої нагадування:*\n"]
-    for r in reminders:
-        lines.append(f"🔔 *#{r['id']}* — {r['text']}\n   📅 {r['remind_at']}")
-
-    await message.answer(
-        "\n\n".join(lines),
-        reply_markup=reminders_keyboard(reminders),
-        parse_mode="Markdown"
-    )
-
+    rems = get_active(message.from_user.id)
+    await message.answer(render(rems), reply_markup=rem_kb(rems), parse_mode="HTML")
 
 @router.callback_query(F.data == "rem_add")
-async def reminder_add_start(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(ReminderStates.waiting_for_text)
-    await callback.message.answer(
-        "🔔 *Нове нагадування*\n\nКрок 1/2 — Про що нагадати?\n_Наприклад: Здати лабораторну №3_",
-        parse_mode="Markdown"
-    )
-    await callback.answer()
+async def rem_add(cb: CallbackQuery, state: FSMContext):
+    await state.set_state(RS.text)
+    await cb.message.answer(
+        "🔔 <b>Нове нагадування</b>\n\nКрок 1/2 — Про що нагадати?",
+        parse_mode="HTML")
+    await cb.answer()
 
-
-@router.message(ReminderStates.waiting_for_text)
-async def reminder_text(message: Message, state: FSMContext):
+@router.message(RS.text)
+async def rem_text(message: Message, state: FSMContext):
     await state.update_data(text=message.text.strip())
-    await state.set_state(ReminderStates.waiting_for_datetime)
+    await state.set_state(RS.dt)
     await message.answer(
-        "Крок 2/2 — Коли нагадати?\n\n"
-        "Введи дату і час у форматі *ДД.ММ.РРРР ГГ:ХХ*\n"
-        "_Наприклад: 25.06.2026 09:00_",
-        parse_mode="Markdown"
-    )
+        "Крок 2/2 — Коли? (<code>ДД.ММ.РРРР ГГ:ХХ</code>)\n"
+        "<i>Приклад: 25.06.2026 09:00</i>", parse_mode="HTML")
 
-
-@router.message(ReminderStates.waiting_for_datetime)
-async def reminder_datetime(message: Message, state: FSMContext):
-    dt_str = message.text.strip()
+@router.message(RS.dt)
+async def rem_dt(message: Message, state: FSMContext):
     try:
-        remind_dt = datetime.strptime(dt_str, "%d.%m.%Y %H:%M")
+        dt = datetime.strptime(message.text.strip(), "%d.%m.%Y %H:%M")
     except ValueError:
-        await message.answer(
-            "❌ Невірний формат. Введи як *ДД.ММ.РРРР ГГ:ХХ*\n_Наприклад: 25.06.2026 09:00_",
-            parse_mode="Markdown"
-        )
+        await message.answer("❌ Формат: <code>ДД.ММ.РРРР ГГ:ХХ</code>", parse_mode="HTML")
         return
-
-    if remind_dt < datetime.now():
-        await message.answer("❌ Ця дата вже в минулому. Введи майбутню дату.")
+    if dt < datetime.now():
+        await message.answer("❌ Дата в минулому. Введи майбутню.")
         return
-
-    data = await state.get_data()
+    d = await state.get_data()
     await state.clear()
-
-    add_reminder(message.from_user.id, data["text"], dt_str)
+    data = load(); k = str(message.from_user.id)
+    data.setdefault(k, [])
+    nid = max((r["id"] for r in data[k]), default=0) + 1
+    data[k].append({"id":nid,"text":d["text"],"remind_at":message.text.strip(),"sent":False})
+    save(data)
     await message.answer(
-        f"✅ Нагадування встановлено!\n\n"
-        f"🔔 *{data['text']}*\n"
-        f"📅 {dt_str}",
-        parse_mode="Markdown"
-    )
-
+        f"✅ <b>Нагадування встановлено!</b>\n\n🔔 {d['text']}\n📅 {message.text.strip()}",
+        parse_mode="HTML")
 
 @router.callback_query(F.data.startswith("rem_del:"))
-async def reminder_delete(callback: CallbackQuery):
-    rem_id = int(callback.data.split(":")[1])
-    delete_reminder(callback.from_user.id, rem_id)
-    await callback.answer(f"🗑 Нагадування #{rem_id} видалено")
-
-    reminders = [r for r in get_user_reminders(callback.from_user.id) if not r["sent"]]
-    if not reminders:
-        await callback.message.edit_text(
-            "⏰ *Нагадування*\n\nАктивних нагадувань немає.",
-            parse_mode="Markdown"
-        )
-    else:
-        lines = ["⏰ *Твої нагадування:*\n"]
-        for r in reminders:
-            lines.append(f"🔔 *#{r['id']}* — {r['text']}\n   📅 {r['remind_at']}")
-        await callback.message.edit_text(
-            "\n\n".join(lines),
-            reply_markup=reminders_keyboard(reminders),
-            parse_mode="Markdown"
-        )
-
-
-# ─── Функція для APScheduler ─────────────────────────────────────────────────
+async def rem_del(cb: CallbackQuery):
+    nid = int(cb.data.split(":")[1])
+    d = load(); k = str(cb.from_user.id)
+    d[k] = [r for r in d.get(k,[]) if r["id"] != nid]
+    save(d)
+    rems = get_active(cb.from_user.id)
+    await cb.message.edit_text(render(rems), reply_markup=rem_kb(rems), parse_mode="HTML")
+    await cb.answer(f"🗑 #{nid} видалено")
 
 async def check_and_send_reminders(bot):
-    """
-    Перевіряє всі нагадування і надсилає ті що настали.
-    APScheduler викликає цю функцію щохвилини.
-    """
     now = datetime.now()
-    data = load_reminders()
-    changed = False
-
-    for uid, reminders in data.items():
-        for r in reminders:
-            if r["sent"]:
-                continue
+    d = load(); changed = False
+    for uid, rems in d.items():
+        for r in rems:
+            if r.get("sent"): continue
             try:
-                remind_dt = datetime.strptime(r["remind_at"], "%d.%m.%Y %H:%M")
-            except ValueError:
-                continue
-
-            if remind_dt <= now:
-                try:
-                    await bot.send_message(
-                        int(uid),
-                        f"🔔 *Нагадування!*\n\n{r['text']}",
-                        parse_mode="Markdown"
-                    )
-                    r["sent"] = True
-                    changed = True
-                except Exception:
-                    pass
-
-    if changed:
-        save_reminders(data)
+                if datetime.strptime(r["remind_at"], "%d.%m.%Y %H:%M") <= now:
+                    await bot.send_message(int(uid),
+                        f"🔔 <b>Нагадування!</b>\n\n{r['text']}", parse_mode="HTML")
+                    r["sent"] = True; changed = True
+            except Exception:
+                pass
+    if changed: save(d)

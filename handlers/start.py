@@ -4,45 +4,48 @@ from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 
 router = Router()
 
-def main_menu() -> ReplyKeyboardMarkup:
-    keyboard = [
-        [KeyboardButton(text="📅 Розклад занять"), KeyboardButton(text="📝 Розклад екзаменів")],
-        [KeyboardButton(text="🎓 Оцінки та ECTS"),  KeyboardButton(text="👨‍🏫 Викладачі")],
-        [KeyboardButton(text="🌤 Погода"),           KeyboardButton(text="💵 Курс валют")],
-        [KeyboardButton(text="📰 Новини ТНТУ"),      KeyboardButton(text="🏛 Корпуси ТНТУ")],
-        [KeyboardButton(text="⏰ Нагадування"),      KeyboardButton(text="📋 Дедлайни")],
-        [KeyboardButton(text="📝 Нотатки"),          KeyboardButton(text="❓ Q&A")],
-        [KeyboardButton(text="🎯 Вікторина"),        KeyboardButton(text="💬 FAQ")],
-    ]
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+MENU = ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
+    [KeyboardButton(text="📅 Розклад занять"),   KeyboardButton(text="📝 Розклад екзаменів")],
+    [KeyboardButton(text="🎓 Оцінки та ECTS"),   KeyboardButton(text="👨‍🏫 Викладачі")],
+    [KeyboardButton(text="🌤 Погода"),            KeyboardButton(text="💵 Курс валют")],
+    [KeyboardButton(text="📰 Новини ТНТУ"),       KeyboardButton(text="🏛 Корпуси ТНТУ")],
+    [KeyboardButton(text="⏰ Нагадування"),       KeyboardButton(text="📋 Дедлайни")],
+    [KeyboardButton(text="📝 Нотатки"),           KeyboardButton(text="❓ Q&A")],
+    [KeyboardButton(text="🎯 Вікторина"),         KeyboardButton(text="💬 FAQ")],
+])
+
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     name = message.from_user.first_name
     await message.answer(
-        f"👋 Привіт, {name}!\n\n"
-        "Я — офіційний бот-помічник для студентів\n"
-        "ТНТУ імені Івана Пулюя 🎓\n\n"
-        "Обери що тебе цікавить 👇",
-        reply_markup=main_menu()
+        f"👋 Привіт, <b>{name}</b>!\n\n"
+        "Я — бот-помічник для студентів\n"
+        "<b>ТНТУ імені Івана Пулюя</b> 🎓\n\n"
+        "Обери розділ у меню нижче 👇",
+        parse_mode="HTML",
+        reply_markup=MENU
     )
+
 
 @router.message(Command("help"))
 async def cmd_help(message: Message):
     await message.answer(
-        "📖 Список всіх функцій:\n\n"
-        "📅 Розклад занять — PDF розклад для будь-якої групи\n"
-        "📝 Розклад екзаменів — дати іспитів з сайту ТНТУ\n"
-        "🎓 Оцінки та ECTS — калькулятори балів\n"
-        "👨‍🏫 Викладачі — пошук по всьому університету\n"
-        "🌤 Погода — поточна погода в Тернополі\n"
-        "💵 Курс валют — офіційний курс НБУ\n"
-        "📰 Новини — останні новини ТНТУ\n"
-        "🏛 Корпуси — адреси і карти корпусів\n"
-        "⏰ Нагадування — особисті нагадування\n"
-        "📋 Дедлайни — трекер здачі робіт\n"
-        "📝 Нотатки — швидкі нотатки\n"
-        "❓ Q&A — анонімні питання і відповіді\n"
-        "🎯 Вікторина — тест знань по предметах\n"
-        "💬 FAQ — відповіді на типові питання студентів"
+        "<b>📖 Всі функції бота</b>\n\n"
+        "📅 <b>Розклад занять</b> — PDF для будь-якої групи\n"
+        "📝 <b>Розклад екзаменів</b> — дати іспитів з сайту ТНТУ\n"
+        "🎓 <b>Оцінки та ECTS</b> — калькулятори балів\n"
+        "👨‍🏫 <b>Викладачі</b> — пошук по всьому університету\n"
+        "🌤 <b>Погода</b> — поточна погода в Тернополі\n"
+        "💵 <b>Курс валют</b> — офіційний курс НБУ\n"
+        "📰 <b>Новини</b> — останні новини ТНТУ\n"
+        "🏛 <b>Корпуси</b> — 11 корпусів та 3 гуртожитки\n"
+        "⏰ <b>Нагадування</b> — особисті нагадування\n"
+        "📋 <b>Дедлайни</b> — трекер здачі робіт\n"
+        "📝 <b>Нотатки</b> — швидкі записи\n"
+        "❓ <b>Q&A</b> — анонімні питання\n"
+        "🎯 <b>Вікторина</b> — тест знань\n"
+        "💬 <b>FAQ</b> — відповіді на типові питання\n\n"
+        "Підтримка: @tntu_helper_bot",
+        parse_mode="HTML"
     )

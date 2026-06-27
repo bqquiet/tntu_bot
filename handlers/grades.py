@@ -5,216 +5,167 @@ from aiogram.fsm.state import State, StatesGroup
 
 router = Router()
 
-# ─── Таблиця ECTS ────────────────────────────────────────────────────────────
-
-ECTS_TABLE = [
-    (90, 100, "A", "Відмінно",     "✅"),
-    (82,  89, "B", "Добре",        "✅"),
-    (74,  81, "C", "Добре",        "✅"),
-    (64,  73, "D", "Задовільно",   "⚠️"),
-    (60,  63, "E", "Задовільно",   "⚠️"),
-    (35,  59, "FX","Незадовільно", "❌"),
-    ( 0,  34, "F", "Незадовільно", "❌"),
+ECTS = [
+    (90,100,"A","Відмінно","✅"),(82,89,"B","Добре","✅"),
+    (74,81,"C","Добре","✅"),(64,73,"D","Задовільно","⚠️"),
+    (60,63,"E","Задовільно","⚠️"),(35,59,"FX","Незадовільно","❌"),(0,34,"F","Незадовільно","❌"),
 ]
 
-def score_to_ects(score: float) -> tuple[str, str, str]:
-    """Повертає (літера, назва, емодзі) для заданого балу."""
-    for low, high, letter, name, emoji in ECTS_TABLE:
-        if low <= score <= high:
-            return letter, name, emoji
-    return "F", "Незадовільно", "❌"
 
-# ─── FSM-стани ───────────────────────────────────────────────────────────────
+class GS(StatesGroup):
+    avg   = State()
+    ects  = State()
+    exam1 = State()
+    exam2 = State()
 
-class GradeStates(StatesGroup):
-    waiting_for_grades    = State()   # середній бал
-    waiting_for_ects      = State()   # конвертер ECTS
-    waiting_for_exam_calc = State()   # калькулятор іспиту — крок 1 (поточний бал)
-    waiting_for_exam_want = State()   # калькулятор іспиту — крок 2 (бажана оцінка)
 
-# ─── Головне меню оцінок ─────────────────────────────────────────────────────
+def to_ects(score: float):
+    for lo,hi,lt,nm,em in ECTS:
+        if lo <= score <= hi:
+            return lt,nm,em
+    return "F","Незадовільно","❌"
+
 
 @router.message(F.text == "🎓 Оцінки та ECTS")
 async def grades_menu(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
-        "🎓 *Оцінки та ECTS*\n\n"
-        "Що хочеш порахувати?\n\n"
-        "📊 /avg — Середній бал\n"
-        "🔄 /ects — Конвертер ECTS\n"
-        "📝 /exam — Скільки треба на іспиті",
-        parse_mode="Markdown"
+        "🎓 <b>Оцінки та ECTS</b>\n\n"
+        "/avg — Середній бал\n"
+        "/ects — Конвертер ECTS\n"
+        "/exam — Калькулятор іспиту",
+        parse_mode="HTML"
     )
 
-# ─── 1. Середній бал ─────────────────────────────────────────────────────────
 
 @router.message(F.text.startswith("/avg"))
 async def avg_start(message: Message, state: FSMContext):
-    await state.set_state(GradeStates.waiting_for_grades)
+    await state.set_state(GS.avg)
     await message.answer(
-        "📊 *Калькулятор середнього балу*\n\n"
-        "Введи оцінки через пробіл або кому:\n"
-        "_Приклад: 85 90 78 92 67_",
-        parse_mode="Markdown"
+        "📊 <b>Середній бал</b>\n\nВведи оцінки через пробіл або кому:\n"
+        "<i>Приклад: 85 90 78 92</i>", parse_mode="HTML"
     )
 
-@router.message(GradeStates.waiting_for_grades)
-async def avg_calculate(message: Message, state: FSMContext):
+
+@router.message(GS.avg)
+async def avg_calc(message: Message, state: FSMContext):
     await state.clear()
-    raw = message.text.replace(",", " ").split()
-
     try:
-        scores = [float(s) for s in raw]
+        scores = [float(x) for x in message.text.replace(",", " ").split()]
     except ValueError:
-        await message.answer("❌ Введи лише числа, наприклад: *85 90 78*", parse_mode="Markdown")
+        await message.answer("❌ Введи тільки числа, наприклад: <code>85 90 78</code>", parse_mode="HTML")
         return
-
-    if not scores:
-        await message.answer("❌ Не знайдено жодної оцінки.")
+    if not scores or any(not (0 <= s <= 100) for s in scores):
+        await message.answer("❌ Оцінки мають бути від 0 до 100.")
         return
-
-    invalid = [s for s in scores if not (0 <= s <= 100)]
-    if invalid:
-        await message.answer(f"❌ Оцінки мають бути від 0 до 100. Перевір: {invalid}")
-        return
-
     avg = sum(scores) / len(scores)
-    letter, name, emoji = score_to_ects(avg)
+    lt, nm, em = to_ects(avg)
+    await message.answer(
+        f"📊 <b>Результат</b>\n"
+        f"{'─'*22}\n"
+        f"Введено оцінок: <b>{len(scores)}</b>\n"
+        f"Середній бал:  <b>{avg:.2f}</b>\n\n"
+        f"{em} ECTS: <b>{lt}</b> — {nm}",
+        parse_mode="HTML"
+    )
 
-    lines = [
-        f"📊 *Результат*\n",
-        f"Оцінок введено: {len(scores)}",
-        f"Середній бал: *{avg:.2f}*",
-        f"\n{emoji} ECTS: *{letter}* — {name}",
-    ]
-
-    # Додаємо міні-таблицю всіх введених оцінок
-    if len(scores) > 1:
-        score_strs = [f"{int(s) if s == int(s) else s}" for s in scores]
-        lines.append(f"\n_Введені оцінки: {', '.join(score_strs)}_")
-
-    await message.answer("\n".join(lines), parse_mode="Markdown")
-
-# ─── 2. Конвертер ECTS ───────────────────────────────────────────────────────
 
 @router.message(F.text.startswith("/ects"))
 async def ects_start(message: Message, state: FSMContext):
-    await state.set_state(GradeStates.waiting_for_ects)
-    await message.answer(
-        "🔄 *Конвертер ECTS*\n\n"
-        "Введи бал від 0 до 100:",
-        parse_mode="Markdown"
-    )
+    await state.set_state(GS.ects)
+    await message.answer("🔄 <b>Конвертер ECTS</b>\n\nВведи бал від 0 до 100:", parse_mode="HTML")
 
-@router.message(GradeStates.waiting_for_ects)
-async def ects_convert(message: Message, state: FSMContext):
+
+@router.message(GS.ects)
+async def ects_conv(message: Message, state: FSMContext):
     await state.clear()
     try:
         score = float(message.text.strip().replace(",", "."))
     except ValueError:
         await message.answer("❌ Введи число від 0 до 100.")
         return
-
     if not (0 <= score <= 100):
         await message.answer("❌ Бал має бути від 0 до 100.")
         return
-
-    letter, name, emoji = score_to_ects(score)
-
-    # Повна таблиця для наочності
-    table_lines = ["🔄 *Конвертер ECTS*\n"]
-    table_lines.append(f"Твій бал: *{score:.0f}*\n")
-
-    for low, high, ltr, nm, emj in ECTS_TABLE:
-        marker = "▶️ " if ltr == letter else "    "
-        table_lines.append(f"{marker}{emj} {low}–{high} → *{ltr}* ({nm})")
-
-    table_lines.append(f"\n{emoji} Результат: *{letter}* — {name}")
-    await message.answer("\n".join(table_lines), parse_mode="Markdown")
-
-# ─── 3. Скільки треба на іспиті ──────────────────────────────────────────────
-
-@router.message(F.text.startswith("/exam"))
-async def exam_calc_start(message: Message, state: FSMContext):
-    await state.set_state(GradeStates.waiting_for_exam_calc)
+    lt, nm, em = to_ects(score)
+    rows = []
+    for lo,hi,l,n,e in ECTS:
+        mark = "▶" if l == lt else " "
+        rows.append(f"{mark} {e} {lo}–{hi} → <b>{l}</b> ({n})")
     await message.answer(
-        "📝 *Калькулятор іспиту*\n\n"
-        "Введи свій *поточний бал* за семестр (0–100):\n"
-        "_Це бал який ти вже маєш до іспиту_",
-        parse_mode="Markdown"
+        f"🔄 <b>Конвертер ECTS</b>\n"
+        f"Твій бал: <b>{score:.0f}</b>\n"
+        f"{'─'*22}\n" + "\n".join(rows) +
+        f"\n{'─'*22}\n{em} Результат: <b>{lt}</b> — {nm}",
+        parse_mode="HTML"
     )
 
-@router.message(GradeStates.waiting_for_exam_calc)
-async def exam_calc_current(message: Message, state: FSMContext):
+
+@router.message(F.text.startswith("/exam"))
+async def exam_start(message: Message, state: FSMContext):
+    await state.set_state(GS.exam1)
+    await message.answer(
+        "📝 <b>Калькулятор іспиту</b>\n\n"
+        "Крок 1/2 — Введи <b>поточний бал</b> за семестр (0–100):",
+        parse_mode="HTML"
+    )
+
+
+@router.message(GS.exam1)
+async def exam_curr(message: Message, state: FSMContext):
     try:
-        current = float(message.text.strip().replace(",", "."))
+        curr = float(message.text.strip().replace(",", "."))
     except ValueError:
         await message.answer("❌ Введи число від 0 до 100.")
         return
-
-    if not (0 <= current <= 100):
+    if not (0 <= curr <= 100):
         await message.answer("❌ Бал має бути від 0 до 100.")
         return
-
-    await state.update_data(current=current)
-    await state.set_state(GradeStates.waiting_for_exam_want)
+    await state.update_data(current=curr)
+    await state.set_state(GS.exam2)
     await message.answer(
-        f"Поточний бал: *{current:.0f}*\n\n"
-        "Тепер введи *бажану підсумкову оцінку* (60–100):\n"
-        "_Наприклад: 75 (щоб вийти на ECTS C)_",
-        parse_mode="Markdown"
+        f"Поточний бал: <b>{curr:.0f}</b>\n\n"
+        f"Крок 2/2 — Введи <b>бажану підсумкову оцінку</b> (60–100):",
+        parse_mode="HTML"
     )
 
-@router.message(GradeStates.waiting_for_exam_want)
-async def exam_calc_result(message: Message, state: FSMContext):
+
+@router.message(GS.exam2)
+async def exam_result(message: Message, state: FSMContext):
     data = await state.get_data()
+    curr = data["current"]
     await state.clear()
-
-    current = data.get("current", 0)
-
     try:
-        target = float(message.text.strip().replace(",", "."))
+        want = float(message.text.strip().replace(",", "."))
     except ValueError:
-        await message.answer("❌ Введи число від 60 до 100.")
+        await message.answer("❌ Введи число від 0 до 100.")
         return
+    needed = (want - curr * 0.6) / 0.4
+    lt, nm, em = to_ects(want)
 
-    if not (0 <= target <= 100):
-        await message.answer("❌ Бал має бути від 0 до 100.")
-        return
-
-    # Формула ТНТУ: підсумковий = поточний * 0.6 + іспит * 0.4
-    # Звідси: іспит = (підсумковий - поточний * 0.6) / 0.4
-    SEMESTER_WEIGHT = 0.6
-    EXAM_WEIGHT = 0.4
-    needed = (target - current * SEMESTER_WEIGHT) / EXAM_WEIGHT
-
-    letter, name, emoji = score_to_ects(target)
-
-    lines = [f"📝 *Результат калькулятора іспиту*\n"]
-    lines.append(f"Поточний бал:    *{current:.0f}*")
-    lines.append(f"Бажана оцінка:   *{target:.0f}* ({emoji} {letter} — {name})")
-    lines.append("")
-
+    lines = [
+        f"📝 <b>Результат</b>",
+        f"{'─'*22}",
+        f"Поточний бал:  <b>{curr:.0f}</b>",
+        f"Бажана оцінка: <b>{want:.0f}</b> ({em} {lt} — {nm})",
+        f"{'─'*22}",
+    ]
     if needed > 100:
-        lines.append("😔 На жаль, навіть при максимальному балі на іспиті (100) ця оцінка недосяжна.")
-        # Показуємо що максимально можливо
-        max_final = current * SEMESTER_WEIGHT + 100 * EXAM_WEIGHT
-        max_letter, max_name, max_emoji = score_to_ects(max_final)
-        lines.append(f"\n📌 Максимум що можеш отримати: *{max_final:.1f}* ({max_emoji} {max_letter} — {max_name})")
+        max_f = curr * 0.6 + 100 * 0.4
+        ml, mn, me = to_ects(max_f)
+        lines.append(f"😔 Недосяжно навіть при 100 на іспиті.")
+        lines.append(f"📌 Максимум: <b>{max_f:.1f}</b> ({me} {ml} — {mn})")
     elif needed < 0:
-        lines.append("🎉 Ти вже набрав достатньо! На іспит можеш йти спокійно.")
-        lines.append(f"📌 Навіть з 0 на іспиті матимеш ≥ {target:.0f} балів.")
+        lines.append("🎉 Вже досяг! Можеш не хвилюватись.")
     else:
-        lines.append(f"🎯 На іспиті потрібно набрати: *{needed:.1f}* балів")
+        lines.append(f"🎯 Потрібно на іспиті: <b>{needed:.1f}</b> балів")
+        lines.append(f"\n<i>Що потрібно для різних оцінок:</i>")
+        for lo,hi,l,n,e in ECTS:
+            n_ = (lo - curr * 0.6) / 0.4
+            if 0 <= n_ <= 100:
+                lines.append(f"  {e} {l}: <b>{n_:.0f}</b> балів на іспиті")
+            elif n_ < 0:
+                lines.append(f"  {e} {l}: вже маєш ✅")
 
-        # Підказки для інших порогів
-        lines.append("\n_Що потрібно для інших оцінок:_")
-        for low, high, ltr, nm, emj in ECTS_TABLE:
-            n = (low - current * SEMESTER_WEIGHT) / EXAM_WEIGHT
-            if 0 <= n <= 100:
-                lines.append(f"  {emj} {ltr} ({low}+): потрібно *{n:.0f}* на іспиті")
-            elif n < 0:
-                lines.append(f"  {emj} {ltr} ({low}+): вже маєш ✅")
-
-    lines.append(f"\n_Формула: поточний × 0.6 + іспит × 0.4_")
-    await message.answer("\n".join(lines), parse_mode="Markdown")
+    lines.append(f"\n<i>Формула: поточний × 0.6 + іспит × 0.4</i>")
+    await message.answer("\n".join(lines), parse_mode="HTML")

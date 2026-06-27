@@ -4,180 +4,160 @@ from urllib.parse import urljoin
 from config import TNTU_BASE_URL
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; TNTU-Bot/1.0)"}
+MONTHS = ["січня","лютого","березня","квітня","травня","червня",
+          "липня","серпня","вересня","жовтня","листопада","грудня"]
+
+
+def _fetch(url: str) -> BeautifulSoup | None:
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        r.encoding = "utf-8"
+        return BeautifulSoup(r.text, "html.parser") if r.status_code == 200 else None
+    except Exception:
+        return None
 
 
 def get_faculty_data(faculty_code: str) -> dict:
     url = f"{TNTU_BASE_URL}/?p=uk/schedule&s={faculty_code}"
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
-        r.encoding = "utf-8"
-    except requests.RequestException:
+    soup = _fetch(url)
+    if not soup:
         return {"groups_by_course": {}, "pdf_links": []}
 
-    soup = BeautifulSoup(r.text, "html.parser")
-    groups_by_course = {}
-    pdf_links = []
+    groups_by_course: dict = {}
+    pdf_links: list = []
 
-    # ── PDF посилання на розклади занять ──────────────────────────────────
+    # PDF посилання
     for a in soup.find_all("a", href=True):
         href = a["href"]
         if ".pdf" in href.lower():
             title = a.get_text(strip=True) or "Розклад"
-            # Правильне склеювання URL
-            full_url = href if href.startswith("http") else urljoin(TNTU_BASE_URL + "/", href)
-            if title and full_url not in [u for _, u in pdf_links]:
-                pdf_links.append((title[:100], full_url))
+            full = href if href.startswith("http") else urljoin(TNTU_BASE_URL + "/", href)
+            if full not in [u for _, u in pdf_links]:
+                pdf_links.append((title[:100], full))
 
-    # ── Групи з посиланнями на екзаменаційний розклад ────────────────────
+    # Групи
     for a in soup.find_all("a", href=True):
         href = a["href"]
         if "?p=uk/schedule&s=" not in href:
             continue
         code_part = href.split("&s=")[-1]
-        # Пропускаємо факультетні посилання (fmt, fpt, fis, fem)
-        if code_part in ("fmt", "fpt", "fis", "fem", faculty_code):
+        if code_part in ("fmt","fpt","fis","fem", faculty_code):
             continue
-        # Групові посилання містять цифри
         if not any(c.isdigit() for c in code_part):
             continue
-
-        group_name = a.get_text(strip=True).split("(")[0].strip()
-        if not group_name or len(group_name) > 15:
+        name = a.get_text(strip=True).split("(")[0].strip()
+        if not name or len(name) > 15:
             continue
-
-        # Нормалізуємо код групи
-        group_code = code_part  # напр. fis-sp11 або sp11
-
-        digits = "".join(filter(str.isdigit, group_name))
+        digits = "".join(filter(str.isdigit, name))
         if len(digits) >= 2:
-            course_num = digits[0]
-            course_key = f"{course_num} курс"
-            if course_key not in groups_by_course:
-                groups_by_course[course_key] = []
-            entry = (group_name, group_code)
-            if entry not in groups_by_course[course_key]:
-                groups_by_course[course_key].append(entry)
+            key = f"{digits[0]} курс"
+            groups_by_course.setdefault(key, [])
+            entry = (name, code_part)
+            if entry not in groups_by_course[key]:
+                groups_by_course[key].append(entry)
 
-    return {
-        "groups_by_course": dict(sorted(groups_by_course.items())),
-        "pdf_links": pdf_links[:15],
-    }
+    return {"groups_by_course": dict(sorted(groups_by_course.items())),
+            "pdf_links": pdf_links[:20]}
 
 
 def get_exam_schedule(group_code: str, group_name: str = "") -> str:
-    """Парсить розклад екзаменів групи."""
     url = f"{TNTU_BASE_URL}/?p=uk/schedule&s={group_code}"
-    display_name = group_name or group_code.split("-")[-1].upper()
+    display = group_name or group_code.split("-")[-1].upper()
+    soup = _fetch(url)
+    if not soup:
+        return (f"❌ Не вдалося завантажити розклад.\n\n"
+                f"🔗 {url}")
 
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
-        r.encoding = "utf-8"
-    except requests.RequestException:
-        return f"❌ Не вдалося завантажити розклад.\n\n🔗 {url}"
-
-    soup = BeautifulSoup(r.text, "html.parser")
-
-    # Знаходимо основний контент — шукаємо блок після навігації
-    # Пропускаємо nav, header, sidebar
-    for tag in soup.find_all(["nav", "header", "aside"]):
+    # Видаляємо навігацію
+    for tag in soup.find_all(["nav","header","aside","footer"]):
         tag.decompose()
 
-    months = ["січня","лютого","березня","квітня","травня","червня",
-              "липня","серпня","вересня","жовтня","листопада","грудня"]
-
-    # Шукаємо блоки з датами іспитів
-    exam_entries = []
+    entries = []
     current_date = ""
 
-    content = soup.find("main") or soup.find("div", {"id": "content"}) or \
-              soup.find("div", {"class": ["content","main-content","entry-content"]}) or soup
+    content = (soup.find("main") or soup.find("div", {"id":"content"})
+               or soup.find("div", {"class":"content"}) or soup)
 
     for tag in content.find_all(["h2","h3","h4","p","li","div","td"]):
         text = " ".join(tag.get_text().split()).strip()
-
-        if not text or len(text) > 400 or len(text) < 3:
+        if not text or len(text) > 500:
             continue
 
-        # Пропускаємо якщо схоже на навігацію
-        nav_words = ["факультет","студенту","головна","меню","copyright","пошук","новини"]
-        if any(w in text.lower() for w in nav_words):
+        # Пропуск навігаційних рядків
+        skip = ["факультет","студенту","головна","меню","copyright","пошук",
+                "новини","powered","університет"]
+        if any(s in text.lower() for s in skip):
             continue
 
-        # Знаходимо дату
+        # Дата типу "19 червня" або "19 червня 2026"
         words = text.split()
-        if len(words) == 2 and words[0].isdigit() and any(m in words[1].lower() for m in months):
-            current_date = text
+        if (len(words) >= 2 and words[0].isdigit()
+                and any(m in words[1].lower() for m in MONTHS)):
+            current_date = " ".join(words[:3] if len(words) >= 3 and words[2].isdigit() else words[:2])
             continue
 
-        # Довша дата типу "19 червня 2026"
-        if len(words) == 3 and words[0].isdigit() and any(m in words[1].lower() for m in months) and words[2].isdigit():
-            current_date = text
-            continue
+        link = tag.find("a", href=lambda h: h and "dl.tntu" in h)
+        has_time = any(":" in w and len(w) == 5 and w[:2].isdigit() for w in words)
+        has_room = any(w.upper().startswith(("К1","К2","К3","К4","ЛАБ","АУД","ЛАБ.")) for w in words)
 
-        # Знаходимо предмет (є посилання або достатньо довгий)
-        has_link = bool(tag.find("a"))
-        has_time = bool(next((w for w in words if ":" in w and w.replace(":","").isdigit()), None))
-        is_room  = bool(next((w for w in words if w.upper().startswith(("К","ЛАБ","АУД"))), None))
-
-        if current_date and (has_link or has_time or is_room or len(text) > 20):
-            # Час
-            time_str = next((w for w in words if ":" in w and len(w) == 5), "")
-            # Аудиторія
-            room_str = next((w for w in words if w.upper().startswith(("К1","К2","К3","К4","ЛАБ","АУД"))), "")
-            # Предмет
-            link = tag.find("a")
-            subject = link.get_text(strip=True) if link else (text[:60] if len(text) > 5 else "")
+        if current_date and (link or has_time or has_room):
+            subject = link.get_text(strip=True) if link else (text[:70] if len(text) > 5 else "")
+            time_str = next((w for w in words if ":" in w and len(w)==5 and w[:2].isdigit()), "")
+            room_str = next((w for w in words if w.upper().startswith(("К1","К2","К3","К4","ЛАБ"))), "")
 
             if subject and len(subject) > 3:
-                entry = f"\n📌 {current_date}"
-                entry += f"\n   📚 {subject}"
-                if time_str:
-                    entry += f"\n   🕐 {time_str}"
-                if room_str:
-                    entry += f"  |  🏛 {room_str}"
-                exam_entries.append(entry)
+                e = f"📌 <b>{current_date}</b>\n"
+                e += f"   📚 {subject}\n"
+                if time_str: e += f"   🕐 {time_str}"
+                if room_str: e += f"  |  🏛 {room_str}"
+                entries.append(e)
                 current_date = ""
 
-        # Консультація
-        if "консультація" in text.lower() and exam_entries:
-            exam_entries[-1] += f"\n   💬 {text}"
+        if "консультація" in text.lower() and entries:
+            entries[-1] += f"\n   💬 {text}"
 
-    if not exam_entries:
-        # Якщо не вдалось розпарсити — показуємо PDF і посилання
-        return (
-            f"📝 Розклад екзаменів — {display_name}\n\n"
-            f"Розклад доступний на офіційному сайті ТНТУ.\n"
-            f"Натисни щоб відкрити:\n\n"
-            f"🔗 {url}"
-        )
+    if not entries:
+        return (f"📝 <b>Розклад екзаменів — {display}</b>\n\n"
+                f"Дані ще не опубліковано або доступні тільки на сайті.\n\n"
+                f"🔗 <a href=\"{url}\">Відкрити на сайті ТНТУ</a>")
 
-    result = [f"📝 Розклад екзаменів — {display_name}\n"]
-    result.extend(exam_entries[:15])
-    result.append(f"\n\n🔗 Повний розклад: {url}")
+    result = [f"📝 <b>Розклад екзаменів — {display}</b>\n"]
+    result.extend(entries[:15])
+    result.append(f"\n🔗 <a href=\"{url}\">Повний розклад на сайті ТНТУ</a>")
     return "\n".join(result)
 
 
 def get_schedule_pdfs(faculty_code: str, group_name: str) -> str:
-    """Повертає PDF посилання на розклад занять."""
     data = get_faculty_data(faculty_code)
     pdfs = data.get("pdf_links", [])
     url  = f"{TNTU_BASE_URL}/?p=uk/schedule&s={faculty_code}"
 
-    if not pdfs:
-        return (
-            f"📅 Розклад занять — {group_name}\n\n"
-            f"PDF-файли ще не завантажено або розклад на сайті.\n\n"
-            f"🔗 {url}"
-        )
+    # Фільтр по назві групи
+    prefix = "".join(c for c in group_name.upper() if c.isalpha())[:2]
+    course_digit = "".join(c for c in group_name if c.isdigit())[:1]
 
-    # Фільтруємо за групою якщо можливо
-    group_prefix = "".join(c for c in group_name if c.isalpha())[:2].upper()
-    relevant = [(t, u) for t, u in pdfs if group_prefix in t.upper() or "PDF" in t.upper()]
-    show_pdfs = relevant if relevant else pdfs
+    relevant = []
+    for title, link in pdfs:
+        t_up = title.upper()
+        # Шукаємо PDF де згадується схожа назва групи або курс
+        if prefix in t_up or (course_digit and f"-{course_digit}" in t_up):
+            relevant.append((title, link))
 
-    lines = [f"📅 Розклад занять — {group_name}\n"]
-    for title, pdf_url in show_pdfs[:6]:
-        lines.append(f"📄 {title}\n🔗 {pdf_url}\n")
+    show = relevant if relevant else pdfs[:6]
 
-    lines.append(f"📋 Всі розклади факультету:\n{url}")
+    if not show:
+        return (f"📅 <b>Розклад занять — {group_name}</b>\n\n"
+                f"PDF файли не знайдено.\n"
+                f"🔗 <a href=\"{url}\">Переглянь на сайті ТНТУ</a>")
+
+    lines = [f"📅 <b>Розклад занять — {group_name}</b>\n"]
+    if relevant:
+        lines.append(f"<i>Знайдено {len(relevant)} файл(ів) для вашої групи:</i>\n")
+    else:
+        lines.append(f"<i>Розклади для факультету:</i>\n")
+
+    for title, link in show:
+        lines.append(f"📄 {title}\n🔗 {link}\n")
+
+    lines.append(f"📋 <a href=\"{url}\">Всі розклади факультету</a>")
     return "\n".join(lines)

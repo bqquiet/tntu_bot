@@ -1,219 +1,138 @@
-import json
-import random
-import os
+import json, os, random, asyncio
 from aiogram import Router, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 router = Router()
-QUIZ_FILE = "data/quiz.json"
+FILE = "data/quiz.json"
+LETTERS = ["A","B","C","D"]
 
-LETTERS = ["A", "B", "C", "D"]
+class QZ(StatesGroup):
+    subject = State()
+    playing = State()
 
+def load() -> list:
+    return json.load(open(FILE, encoding="utf-8")) if os.path.exists(FILE) else []
 
-class QuizStates(StatesGroup):
-    choosing_subject = State()
-    in_progress      = State()
+def subjects() -> list[str]:
+    return sorted(set(q["subject"] for q in load()))
 
-
-# ─── Утиліти ─────────────────────────────────────────────────────────────────
-
-def load_questions() -> list[dict]:
-    if not os.path.exists(QUIZ_FILE):
-        return []
-    with open(QUIZ_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def get_subjects() -> list[str]:
-    questions = load_questions()
-    return sorted(set(q["subject"] for q in questions))
-
-
-def get_questions_by_subject(subject: str) -> list[dict]:
-    questions = load_questions()
-    if subject == "all":
-        return questions
-    return [q for q in questions if q["subject"] == subject]
-
-
-def format_question(q: dict, num: int, total: int) -> str:
-    lines = [f"🎯 *Вікторина — питання {num}/{total}*\n"]
-    lines.append(f"📚 Тема: _{q['subject']}_\n")
-    lines.append(f"*{q['question']}*\n")
-    for i, option in enumerate(q["options"]):
-        lines.append(f"{LETTERS[i]}. {option}")
-    return "\n".join(lines)
-
-
-def answer_keyboard(q_id: int, options: list[str]) -> InlineKeyboardMarkup:
-    buttons = [
-        [InlineKeyboardButton(
-            text=f"{LETTERS[i]}. {opt[:30]}",
-            callback_data=f"quiz_ans:{q_id}:{i}"
-        )]
-        for i, opt in enumerate(options)
-    ]
+def subj_kb() -> InlineKeyboardMarkup:
+    subs = subjects()
+    buttons = [[InlineKeyboardButton(text=f"📚 {s}", callback_data=f"qz_sub:{s}")] for s in subs]
+    buttons.append([InlineKeyboardButton(text="🎲 Всі теми (перемішано)", callback_data="qz_sub:all")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+def ans_kb(qid: int, opts: list) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"{LETTERS[i]}. {o[:40]}", callback_data=f"qz_ans:{qid}:{i}")]
+        for i, o in enumerate(opts)
+    ])
 
-def subject_keyboard() -> InlineKeyboardMarkup:
-    subjects = get_subjects()
-    buttons = [
-        [InlineKeyboardButton(text=f"📚 {s}", callback_data=f"quiz_sub:{s}")]
-        for s in subjects
-    ]
-    buttons.append([InlineKeyboardButton(text="🎲 Всі теми перемішано", callback_data="quiz_sub:all")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-# ─── Хендлери ────────────────────────────────────────────────────────────────
+def fmt_q(q: dict, num: int, total: int) -> str:
+    opts = "\n".join(f"  <b>{LETTERS[i]}.</b> {o}" for i,o in enumerate(q["options"]))
+    return (
+        f"🎯 <b>Вікторина</b> — питання {num}/{total}\n"
+        f"<i>Тема: {q['subject']}</i>\n"
+        f"{'─'*24}\n"
+        f"<b>{q['question']}</b>\n\n{opts}"
+    )
 
 @router.message(F.text == "🎯 Вікторина")
 async def quiz_menu(message: Message, state: FSMContext):
     await state.clear()
-    total = len(load_questions())
-    subjects = get_subjects()
-
+    total = len(load())
     await message.answer(
-        f"🎯 *Вікторина*\n\n"
-        f"Всього питань у базі: *{total}*\n"
-        f"Теми: {', '.join(subjects)}\n\n"
-        "Обери тему або грай з усіма питаннями перемішано:",
-        reply_markup=subject_keyboard(),
-        parse_mode="Markdown"
+        f"🎯 <b>Вікторина</b>\n\n"
+        f"Питань у базі: <b>{total}</b>\n"
+        f"Теми: {', '.join(subjects())}\n\n"
+        f"Оберіть тему або грайте з усіма:",
+        parse_mode="HTML", reply_markup=subj_kb()
     )
-    await state.set_state(QuizStates.choosing_subject)
+    await state.set_state(QZ.subject)
 
+@router.callback_query(F.data.startswith("qz_sub:"), QZ.subject)
+async def quiz_start(cb: CallbackQuery, state: FSMContext):
+    sub = cb.data.split(":",1)[1]
+    all_q = load()
+    pool = all_q if sub == "all" else [q for q in all_q if q["subject"] == sub]
+    if not pool:
+        await cb.answer("❌ Питань немає"); return
+    chosen = random.sample(pool, min(10, len(pool)))
+    await state.update_data(ids=[q["id"] for q in chosen], idx=0, score=0, sub=sub)
+    await state.set_state(QZ.playing)
+    q = chosen[0]
+    await cb.message.edit_text(fmt_q(q, 1, len(chosen)),
+                               parse_mode="HTML", reply_markup=ans_kb(q["id"], q["options"]))
+    await cb.answer()
 
-@router.callback_query(F.data.startswith("quiz_sub:"), QuizStates.choosing_subject)
-async def quiz_start(callback: CallbackQuery, state: FSMContext):
-    subject = callback.data.split(":", 1)[1]
-    questions = get_questions_by_subject(subject)
-
-    if not questions:
-        await callback.answer("❌ Питань за цією темою немає")
-        return
-
-    # Перемішуємо і беремо до 10 питань
-    shuffled = random.sample(questions, min(10, len(questions)))
-
-    await state.update_data(
-        questions=[q["id"] for q in shuffled],
-        current=0,
-        score=0,
-        subject=subject,
-    )
-    await state.set_state(QuizStates.in_progress)
-
-    # Показуємо перше питання
-    q = shuffled[0]
-    await callback.message.edit_text(
-        format_question(q, 1, len(shuffled)),
-        reply_markup=answer_keyboard(q["id"], q["options"]),
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("quiz_ans:"), QuizStates.in_progress)
-async def quiz_answer(callback: CallbackQuery, state: FSMContext):
-    _, q_id_str, chosen_str = callback.data.split(":")
-    q_id = int(q_id_str)
-    chosen = int(chosen_str)
-
+@router.callback_query(F.data.startswith("qz_ans:"), QZ.playing)
+async def quiz_answer(cb: CallbackQuery, state: FSMContext):
+    _, qid_s, chosen_s = cb.data.split(":")
+    qid, chosen = int(qid_s), int(chosen_s)
     data = await state.get_data()
-    questions_ids = data["questions"]
-    current = data["current"]
-    score = data["score"]
-
-    # Знаходимо питання
-    all_q = load_questions()
-    q = next((x for x in all_q if x["id"] == q_id), None)
+    ids, idx, score, sub = data["ids"], data["idx"], data["score"], data["sub"]
+    all_q = load()
+    q = next((x for x in all_q if x["id"] == qid), None)
     if not q:
-        await callback.answer("❌ Помилка")
-        return
-
+        await cb.answer("❌"); return
     correct = q["answer"]
-    is_correct = chosen == correct
+    is_ok = chosen == correct
+    if is_ok: score += 1
 
-    if is_correct:
-        score += 1
-        result_text = f"✅ *Правильно!*\n_{q['options'][correct]}_"
+    if is_ok:
+        result = f"✅ <b>Правильно!</b>\n<i>{q['options'][correct]}</i>"
     else:
-        result_text = (
-            f"❌ *Неправильно.*\n"
-            f"Твоя відповідь: _{q['options'][chosen]}_\n"
-            f"Правильна: _{q['options'][correct]}_"
-        )
+        result = (f"❌ <b>Неправильно</b>\n"
+                  f"Твоя: <i>{q['options'][chosen]}</i>\n"
+                  f"Вірна: <i>{q['options'][correct]}</i>")
 
-    next_index = current + 1
-    total = len(questions_ids)
+    next_idx = idx + 1
+    total = len(ids)
+    await state.update_data(idx=next_idx, score=score)
+    await cb.answer("✅ Вірно!" if is_ok else "❌ Невірно")
 
-    await state.update_data(current=next_index, score=score)
-
-    if next_index >= total:
-        # Вікторина завершена
+    if next_idx >= total:
         await state.clear()
-        percent = round(score / total * 100)
-        emoji = "🏆" if percent >= 80 else ("👍" if percent >= 50 else "📚")
+        pct = round(score / total * 100)
+        if pct == 100:   emoji, msg = "🏆", "Ідеальний результат!"
+        elif pct >= 80:  emoji, msg = "🎉", "Чудово! Матеріал засвоєно добре."
+        elif pct >= 50:  emoji, msg = "👍", "Непогано, але є над чим працювати."
+        else:            emoji, msg = "📚", "Варто повторити матеріал."
 
-        final = (
-            f"{result_text}\n\n"
-            f"─────────────────\n"
-            f"{emoji} *Вікторина завершена!*\n\n"
-            f"Правильних відповідей: *{score}/{total}*\n"
-            f"Результат: *{percent}%*\n\n"
-        )
-
-        if percent == 100:
-            final += "🌟 Ідеальний результат! Ти відмінно знаєш матеріал!"
-        elif percent >= 80:
-            final += "🎉 Чудовий результат! Матеріал засвоєно добре."
-        elif percent >= 50:
-            final += "👍 Непогано, але є над чим попрацювати."
-        else:
-            final += "📚 Варто повторити матеріал. Не здавайся!"
-
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 Пройти ще раз", callback_data=f"quiz_sub:{data['subject']}")],
-            [InlineKeyboardButton(text="📚 Інша тема", callback_data="quiz_restart")],
+        final_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Ще раз", callback_data=f"qz_sub:{sub}")],
+            [InlineKeyboardButton(text="📚 Інша тема", callback_data="qz_restart")],
         ])
-
-        await callback.message.edit_text(final, reply_markup=kb, parse_mode="Markdown")
-        await callback.answer("Вікторину завершено!" if is_correct else "Неправильно 😔")
+        await cb.message.edit_text(
+            f"{result}\n\n{'─'*24}\n"
+            f"{emoji} <b>Вікторину завершено!</b>\n\n"
+            f"Правильних: <b>{score}/{total}</b>\n"
+            f"Результат:  <b>{pct}%</b>\n\n{msg}",
+            parse_mode="HTML", reply_markup=final_kb
+        )
         return
 
-    # Показуємо результат поточного питання і одразу наступне
-    next_q_id = questions_ids[next_index]
-    next_q = next((x for x in all_q if x["id"] == next_q_id), None)
-
-    # Спочатку показуємо результат
-    await callback.message.edit_text(
-        f"{result_text}\n\n_Рахунок: {score}/{next_index} ✅_",
-        parse_mode="Markdown"
+    await cb.message.edit_text(
+        f"{result}\n\n<i>Рахунок: {score}/{next_idx}</i>",
+        parse_mode="HTML"
     )
-    await callback.answer("✅ Вірно!" if is_correct else "❌ Невірно")
-
-    # Потім наступне питання
-    import asyncio
     await asyncio.sleep(1.5)
+    next_q = next((x for x in all_q if x["id"] == ids[next_idx]), None)
+    if next_q:
+        await cb.message.edit_text(
+            fmt_q(next_q, next_idx+1, total),
+            parse_mode="HTML",
+            reply_markup=ans_kb(next_q["id"], next_q["options"])
+        )
 
-    await callback.message.edit_text(
-        format_question(next_q, next_index + 1, total),
-        reply_markup=answer_keyboard(next_q["id"], next_q["options"]),
-        parse_mode="Markdown"
-    )
-
-
-@router.callback_query(F.data == "quiz_restart")
-async def quiz_restart(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "qz_restart")
+async def quiz_restart(cb: CallbackQuery, state: FSMContext):
     await state.clear()
-    await state.set_state(QuizStates.choosing_subject)
-    await callback.message.edit_text(
-        "🎯 *Вікторина*\n\nОбери тему:",
-        reply_markup=subject_keyboard(),
-        parse_mode="Markdown"
+    await state.set_state(QZ.subject)
+    await cb.message.edit_text(
+        "🎯 <b>Вікторина</b>\n\nОберіть тему:",
+        parse_mode="HTML", reply_markup=subj_kb()
     )
-    await callback.answer()
+    await cb.answer()
