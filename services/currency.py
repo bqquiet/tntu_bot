@@ -1,6 +1,6 @@
 """
 Курс валют з https://rulya-bank.com.ua/
-Оновлюється щодня о 8:00 — кеш тримаємо до наступного оновлення.
+Формат рядка: USD USD 44.50 +0.10 10.06 45.30 -0.10 11.06
 """
 import re
 import time
@@ -11,189 +11,144 @@ from bs4 import BeautifulSoup
 URL     = "https://rulya-bank.com.ua/"
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
-# Кеш: {data: [...], ts: float, update_label: str}
-_cache: dict = {"data": [], "ts": 0.0, "update_label": ""}
+_cache: dict = {"data": [], "ts": 0.0, "label": ""}
 
-# Валюти котрі показуємо в боті (в порядку відображення)
-TARGET = ["USD", "EUR", "GBP", "CHF", "CAD", "PLZ", "PLN"]
+CURRENCIES = ["USD", "EUR", "GBP", "CHF", "CAD", "PLZ"]
 
 FLAGS = {
-    "USD": "🇺🇸", "EUR": "🇪🇺", "GBP": "🇬🇧",
-    "CHF": "🇨🇭", "CAD": "🇨🇦", "PLZ": "🇵🇱", "PLN": "🇵🇱",
+    "USD":"🇺🇸","EUR":"🇪🇺","GBP":"🇬🇧",
+    "CHF":"🇨🇭","CAD":"🇨🇦","PLZ":"🇵🇱","PLN":"🇵🇱",
 }
-
 NAMES = {
-    "USD": "Долар США",    "EUR": "Євро",
-    "GBP": "Фунт стерлінгів", "CHF": "Швейцарський франк",
-    "CAD": "Канадський долар","PLZ": "Польський злотий",
-    "PLN": "Польський злотий",
+    "USD":"Долар США","EUR":"Євро","GBP":"Фунт стерлінгів",
+    "CHF":"Швейцарський франк","CAD":"Канадський долар",
+    "PLZ":"Польський злотий","PLN":"Польський злотий",
 }
 
 
 def _next_8am() -> float:
-    """Повертає unix-час наступного оновлення (8:00 сьогодні або завтра)."""
+    import datetime as dt
     now = datetime.now()
-    today_8 = now.replace(hour=8, minute=0, second=0, microsecond=0)
+    t8  = now.replace(hour=8, minute=0, second=0, microsecond=0)
     if now.hour >= 8:
-        import datetime as dt
-        today_8 += dt.timedelta(days=1)
-    return today_8.timestamp()
+        t8 += dt.timedelta(days=1)
+    return t8.timestamp()
+
+
+def _parse_row(parts: list[str]) -> dict | None:
+    """
+    Парсить список слів одного рядку валюти.
+    Формат: [USD, USD, 44.50, +0.10, 10.06, 45.30, -0.10, 11.06]
+    або     [USD, 44.50, +0.10, 10.06, 45.30, -0.10, 11.06]
+    """
+    if not parts:
+        return None
+    code = parts[0].upper()
+    if code not in CURRENCIES:
+        return None
+    # Пропускаємо якщо код повторюється двічі
+    rest = parts[1:] if (len(parts) > 1 and parts[1].upper() == code) else parts[1:]
+    # Шукаємо числа і зміни
+    nums    = []
+    changes = []
+    for p in rest:
+        if re.match(r'^\d+\.\d+$', p):
+            nums.append(float(p))
+        elif re.match(r'^[+\-]\d+\.\d+$', p):
+            changes.append(p)
+    if len(nums) < 2:
+        return None
+    return {
+        "code":   code,
+        "name":   NAMES.get(code, code),
+        "buy":    nums[0],
+        "sell":   nums[1],
+        "chg_b":  changes[0] if len(changes) > 0 else "",
+        "chg_s":  changes[1] if len(changes) > 1 else "",
+    }
 
 
 def _scrape() -> tuple[list[dict], str]:
-    """
-    Парсить сайт і повертає (список валют, мітку часу оновлення).
-    Кожен елемент: {code, name, buy, sell, change_buy, change_sell}
-    """
     try:
         r = requests.get(URL, headers=HEADERS, timeout=10)
         r.encoding = "utf-8"
         soup = BeautifulSoup(r.text, "html.parser")
-    except Exception as e:
+    except Exception:
         return [], ""
 
-    # ── Мітка часу оновлення ─────────────────────────────────────────────────
-    update_label = ""
-    body_text = soup.get_text()
-    m = re.search(r"станом на\s*\[?\*?\*?(\d{1,2}:\d{2})\*?\*?\]?\s*([\d.]+)", body_text)
+    # Мітка часу: "Курс валют станом на [**8:00**] 27.06.2026"
+    label = ""
+    text  = soup.get_text()
+    m = re.search(r"станом на\s*\[?\*?\*?(\d{1,2}:\d{2})\*?\*?\]?\s*([\d.]+)", text)
     if m:
-        update_label = f"{m.group(1)}, {m.group(2)}"
+        label = f"{m.group(1)}, {m.group(2)}"
 
-    # ── Парсимо таблицю курсів ────────────────────────────────────────────────
     results = []
+    for li in soup.find_all("li"):
+        raw   = li.get_text(separator=" ", strip=True)
+        parts = raw.split()
+        row   = _parse_row(parts)
+        if row:
+            results.append(row)
 
-    # Шукаємо <ul> з курсами або <li> рядки
-    items = soup.find_all("li")
-    for li in items:
-        text = li.get_text(separator=" ", strip=True)
-        # Пропускаємо заголовок
-        if "Валюта" in text and "Купівля" in text:
-            continue
-        # Пропускаємо крос-курси (EUR/USD тощо)
-        if "/" in text.split()[0] if text else True:
-            continue
-
-        # Очікуваний формат: "USD USD 44.50 +0.10 10.06 45.30 -0.10 11.06"
-        # або                "USD 44.50 +0.10 10.06 45.30 -0.10 11.06"
-        parts = text.split()
-        if len(parts) < 4:
-            continue
-
-        # Перше слово — код валюти
-        code = parts[0].upper()
-        if code not in TARGET and code not in ["USD","EUR","GBP","CHF","CAD","PLZ","PLN"]:
-            continue
-
-        # Якщо є дублювання коду (USD USD ...) — пропускаємо перше
-        offset = 1 if (len(parts) > 1 and parts[1].upper() == code) else 0
-        rest = parts[1 + offset:]
-
-        # Числа: перше — купівля, потім зміна (+/-), потім дата, потім продаж...
-        nums = []
-        changes = []
-        i = 0
-        while i < len(rest):
-            p = rest[i]
-            # Число з крапкою — курс
-            if re.match(r'^\d+\.\d+$', p):
-                nums.append(float(p))
-            # Зміна
-            elif re.match(r'^[+\-]\d+\.\d+$', p):
-                changes.append(p)
-            i += 1
-
-        if len(nums) < 2:
-            continue
-
-        buy  = nums[0]
-        sell = nums[1]
-        cb   = changes[0] if len(changes) > 0 else ""
-        cs   = changes[1] if len(changes) > 1 else ""
-
-        results.append({
-            "code":         code,
-            "name":         NAMES.get(code, code),
-            "buy":          buy,
-            "sell":         sell,
-            "change_buy":   cb,
-            "change_sell":  cs,
-        })
-
-    return results, update_label
+    return results, label
 
 
-def _get_data() -> tuple[list[dict], str]:
-    """Повертає дані з кешу або парсить свіжі."""
+def _get() -> tuple[list[dict], str]:
     global _cache
     now = time.time()
-
-    # Кеш дійсний до наступних 8:00
     if _cache["data"] and now < _cache["ts"]:
-        return _cache["data"], _cache["update_label"]
-
+        return _cache["data"], _cache["label"]
     data, label = _scrape()
     if data:
-        _cache = {"data": data, "ts": _next_8am(), "update_label": label}
-    elif _cache["data"]:
-        return _cache["data"], _cache["update_label"]  # стара копія
-
-    return data, label
+        _cache = {"data": data, "ts": _next_8am(), "label": label}
+    return (_cache["data"], _cache["label"]) if _cache["data"] else ([], label)
 
 
 def get_currency() -> str:
-    data, label = _get_data()
-
+    data, label = _get()
     if not data:
-        return (
-            "❌ Не вдалося отримати курс валют.\n\n"
-            f"🔗 <a href=\"{URL}\">rulya-bank.com.ua</a>"
-        )
+        return (f"❌ Не вдалося отримати курс валют.\n\n"
+                f"🔗 <a href=\"{URL}\">rulya-bank.com.ua</a>")
 
     today = date.today().strftime("%d.%m.%Y")
-    update_str = f"станом на <b>{label}</b>" if label else f"<b>{today}</b>"
+    when  = f"<b>{label}</b>" if label else f"<b>8:00, {today}</b>"
 
     lines = [
-        f"💱 <b>Курс валют</b> — {update_str}",
+        f"💱 <b>Курс валют</b> — станом на {when}",
         f"🏦 <a href=\"{URL}\">Рульовий банк, Тернопіль</a>",
-        f"{'─' * 30}",
-        f"{'Валюта':<6}  {'Купівля':>8}  {'Продаж':>8}",
-        f"{'─' * 30}",
+        "",
+        f"<code>{'Валюта':<8} {'Купівля':>8}  {'Продаж':>8}</code>",
+        f"<code>{'─'*30}</code>",
     ]
 
-    for item in data:
-        flag  = FLAGS.get(item["code"], "🏳")
-        code  = item["code"]
-        buy   = f"{item['buy']:.2f}"
-        sell  = f"{item['sell']:.2f}"
-        cb    = f" <i>{item['change_buy']}</i>"  if item["change_buy"]  else ""
-        cs    = f" <i>{item['change_sell']}</i>" if item["change_sell"] else ""
-
+    for d in data:
+        flag = FLAGS.get(d["code"], "")
+        buy  = f"{d['buy']:.2f}"
+        sell = f"{d['sell']:.2f}"
+        cb   = d["chg_b"] if d["chg_b"] else "      "
+        cs   = d["chg_s"] if d["chg_s"] else "      "
         lines.append(
-            f"{flag} <b>{code}</b>  "
-            f"<code>{buy:>7}</code>{cb}  "
-            f"<code>{sell:>7}</code>{cs}"
+            f"{flag} <code>{d['code']:<5} {buy:>7} {cb:<7}  {sell:>7} {cs:<7}</code>"
         )
 
-    lines.append(f"{'─' * 30}")
+    lines.append(f"<code>{'─'*30}</code>")
     lines.append(f"<i>Оновлення щодня о 8:00</i>")
     return "\n".join(lines)
 
 
 def get_currency_detail(code: str) -> str:
-    """Детальна картка однієї валюти."""
-    data, label = _get_data()
-    item = next((x for x in data if x["code"] == code.upper()), None)
-    if not item:
+    data, label = _get()
+    d = next((x for x in data if x["code"] == code.upper()), None)
+    if not d:
         return f"❌ Валюту <b>{code}</b> не знайдено."
-
-    flag = FLAGS.get(item["code"], "🏳")
-    cb   = f"  {item['change_buy']}"  if item["change_buy"]  else ""
-    cs   = f"  {item['change_sell']}" if item["change_sell"] else ""
-
+    flag = FLAGS.get(d["code"], "")
     return (
-        f"{flag} <b>{item['name']} ({item['code']})</b>\n"
-        f"{'─' * 24}\n"
-        f"📈 Купівля: <b>{item['buy']:.2f} грн</b>{cb}\n"
-        f"📉 Продаж:  <b>{item['sell']:.2f} грн</b>{cs}\n\n"
-        f"🏦 <a href=\"{URL}\">rulya-bank.com.ua</a>"
+        f"{flag} <b>{d['name']} ({d['code']})</b>\n"
+        f"{'─'*24}\n"
+        f"📈 Купівля:  <b>{d['buy']:.2f} грн</b>"
+        + (f"  <i>{d['chg_b']}</i>" if d["chg_b"] else "") + "\n"
+        f"📉 Продаж:   <b>{d['sell']:.2f} грн</b>"
+        + (f"  <i>{d['chg_s']}</i>" if d["chg_s"] else "") + "\n\n"
+        f"🔗 <a href=\"{URL}\">rulya-bank.com.ua</a>"
     )
